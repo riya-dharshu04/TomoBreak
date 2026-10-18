@@ -11,7 +11,7 @@
  * inner <g>s because CSS animations replace the `transform` of the element
  * they run on.
  */
-import { characterSvg, faceParts } from './parts';
+import { characterSvg, faceParts, partyHat } from './parts';
 
 const HAIR = '#5b3a29';
 const SKIN = '#ffe0c7';
@@ -47,4 +47,5 @@ export const hanaSvg = characterSvg(`
       <ellipse cx="60" cy="57" rx="32" ry="30" fill="${SKIN}"/>
       <path d="M28 52 C29 27 45 18 60 18 C76 18 92 28 92 52 C85 42 77 37 70 35 C66 43 56 45 50 41 C45 47 36 51 28 52 Z" fill="${HAIR}"/>
       ${faceParts({ ink: INK, mouth: MOUTH, brow: HAIR })}
+      ${partyHat(70, 16, 16)}
     </g>`);

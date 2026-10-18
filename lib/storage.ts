@@ -1,25 +1,42 @@
 import { MODE_IDS, MODES } from '@/lib/modes';
-import type { ModeId, ModeSettings, Settings, StorageKey, StorageSchema } from '@/utils/types';
+import type { ModeId, ModeSettings, ReactionId, Settings, StorageKey, StorageSchema } from '@/utils/types';
 
 /** Bump this and add a step to MIGRATIONS whenever the stored shape changes. */
-export const STORAGE_VERSION = 2;
+export const STORAGE_VERSION = 3;
 
-const STORAGE_KEYS: StorageKey[] = ['version', 'settings', 'characters', 'schedule', 'stats'];
+const STORAGE_KEYS: StorageKey[] = ['version', 'settings', 'characters', 'schedule', 'stats', 'bond', 'pomodoro', 'reactions'];
 
 export const DEFAULT_MEETING_SITES: readonly string[] = ['meet.google.com', 'zoom.us', 'teams.microsoft.com'];
+export const DEFAULT_SOCIAL_SITES: readonly string[] = ['youtube.com', 'instagram.com', 'x.com', 'twitter.com', 'reddit.com'];
+
+/** The social-media nudge is opt-in; every other reaction starts on. */
+const DEFAULT_REACTIONS: Record<ReactionId, boolean> = {
+  lateNight: true,
+  longSession: true,
+  tabOverload: true,
+  codingWins: true,
+  socialNudge: false,
+};
 
 export function defaultSettings(): Settings {
   const modes = {} as Record<ModeId, ModeSettings>;
+  const goals = {} as Record<ModeId, number>;
   for (const id of MODE_IDS) {
     modes[id] = { enabled: MODES[id].defaultEnabled, intervalMin: MODES[id].defaultIntervalMin };
+    goals[id] = MODES[id].defaultGoal;
   }
   return {
     enabled: true,
     onboarded: false,
     modes,
+    goals,
+    pomodoroBreakMin: 5,
     quietHours: { enabled: false, startMin: 22 * 60, endMin: 8 * 60 },
     meetingSites: [...DEFAULT_MEETING_SITES],
     blockedSites: [],
+    reactions: { ...DEFAULT_REACTIONS },
+    lateNightStartMin: 60,
+    socialSites: [...DEFAULT_SOCIAL_SITES],
     debugFastIntervals: false,
   };
 }
@@ -31,6 +48,16 @@ function defaults(): StorageSchema {
     characters: { activeId: 'hana', custom: [] },
     schedule: { modes: {}, activeVisit: null, lastVisitEndAt: 0 },
     stats: { days: {} },
+    bond: { characters: {}, lastSummaryWeek: '' },
+    pomodoro: { phase: 'idle', endsAt: 0, round: 0, pendingVisit: null },
+    reactions: {
+      lastReactionAt: 0,
+      pending: null,
+      lastLateNight: '',
+      activeSince: null,
+      socialSince: null,
+      lastTabOverloadAt: 0,
+    },
   };
 }
 
@@ -63,6 +90,9 @@ const MIGRATIONS: Record<number, (data: Snapshot) => Snapshot> = {
     }
     return next;
   },
+  // v2 → v3: ActiveVisit gained kind/characterId; an in-flight visit is dropped.
+  // New keys (bond, pomodoro, reactions) and settings are filled from defaults.
+  2: (data) => (isRecord(data.schedule) ? { ...data, schedule: { ...data.schedule, activeVisit: null } } : data),
 };
 
 export function migrate(data: Snapshot): Snapshot {
@@ -91,7 +121,9 @@ export async function ensureInitialized(): Promise<void> {
         ...base.settings,
         ...migrated.settings,
         modes: { ...base.settings.modes, ...migrated.settings.modes },
+        goals: { ...base.settings.goals, ...migrated.settings.goals },
         quietHours: { ...base.settings.quietHours, ...migrated.settings.quietHours },
+        reactions: { ...base.settings.reactions, ...migrated.settings.reactions },
       }
     : base.settings;
   const next: StorageSchema = {
@@ -100,6 +132,9 @@ export async function ensureInitialized(): Promise<void> {
     settings,
     characters: { ...base.characters, ...migrated.characters },
     schedule: { ...base.schedule, ...migrated.schedule },
+    bond: { ...base.bond, ...migrated.bond },
+    pomodoro: { ...base.pomodoro, ...migrated.pomodoro },
+    reactions: { ...base.reactions, ...migrated.reactions },
     version: STORAGE_VERSION,
   };
   await chrome.storage.local.set(next);
@@ -119,6 +154,7 @@ export async function setItem<K extends StorageKey>(key: K, value: StorageSchema
  * Read-modify-write, serialised within this JS context so two handlers in the
  * service worker (e.g. an alarm and an incoming answer) cannot interleave and
  * overwrite each other's changes. The queue is only a lock, not state.
+ * Returning the current value unchanged skips the write (and change events).
  */
 let queue: Promise<unknown> = Promise.resolve();
 export function updateItem<K extends StorageKey>(
@@ -126,8 +162,9 @@ export function updateItem<K extends StorageKey>(
   update: (current: StorageSchema[K]) => StorageSchema[K],
 ): Promise<StorageSchema[K]> {
   const run = async (): Promise<StorageSchema[K]> => {
-    const next = update(await getItem(key));
-    await setItem(key, next);
+    const current = await getItem(key);
+    const next = update(current);
+    if (next !== current) await setItem(key, next);
     return next;
   };
   const result = queue.then(run, run);

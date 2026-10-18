@@ -4,13 +4,18 @@
  * for them after it has been stopped.
  */
 import { defineBackground } from 'wxt/utils/define-background';
-import { handleActivity, handleAlarm, handleIdleState, showNow, tryDeliver } from '@/lib/delivery';
+import { handleActivity, handleAdapterEvent, handleAlarm, handleIdleState, showDebug, tryDeliver } from '@/lib/delivery';
 import { IDLE_DETECTION_S } from '@/lib/focus';
 import { onMessages, sendToTab } from '@/lib/messaging';
-import { answerForButton, clearAllNotifications } from '@/lib/notify';
+import { answerForButton, clearAllNotifications, clearNotification } from '@/lib/notify';
+import { startFocus, stopPomodoro, syncPomodoro } from '@/lib/pomodoro';
+import { checkTabOverload, ensureReactionAlarm } from '@/lib/reactions';
 import { handleAnswer, syncSchedules } from '@/lib/scheduler';
 import { ensureInitialized, getItem, onItemChanged } from '@/lib/storage';
 import type { BackgroundMessage } from '@/utils/types';
+
+/** Keyboard shortcut (manifest `commands`) that hides the buddy instantly. */
+const HIDE_COMMAND = 'hide-buddy';
 
 function logError(error: unknown): void {
   console.error('[TomoBreak]', error);
@@ -19,6 +24,8 @@ function logError(error: unknown): void {
 async function init(): Promise<void> {
   await ensureInitialized();
   await syncSchedules();
+  await syncPomodoro(await getItem('settings'));
+  await ensureReactionAlarm();
 }
 
 async function openOnboarding(): Promise<void> {
@@ -34,6 +41,15 @@ async function hideEverywhere(): Promise<void> {
     ),
   );
   await clearAllNotifications();
+}
+
+/** Shortcut: remove the current visit right now; it counts as Snooze. */
+async function hideCurrentVisit(): Promise<void> {
+  const { activeVisit } = await getItem('schedule');
+  if (!activeVisit) return;
+  if (activeVisit.tabId !== null) await sendToTab(activeVisit.tabId, { type: 'visit/hide' }).catch(() => undefined);
+  else await clearNotification(activeVisit.id);
+  await handleAnswer(activeVisit.id, 'snooze');
 }
 
 export default defineBackground(() => {
@@ -55,7 +71,13 @@ export default defineBackground(() => {
   // Toggles and interval changes from the popup/options take effect at once.
   onItemChanged('settings', (next, previous) => {
     if (previous?.enabled && !next.enabled) hideEverywhere().catch(logError);
-    syncSchedules().catch(logError);
+    syncSchedules()
+      .then(() => syncPomodoro(next))
+      .catch(logError);
+  });
+
+  chrome.commands.onCommand.addListener((command) => {
+    if (command === HIDE_COMMAND) hideCurrentVisit().catch(logError);
   });
 
   // ---- Natural pauses ----
@@ -72,6 +94,13 @@ export default defineBackground(() => {
     handleIdleState(state).catch(logError);
   });
 
+  // ---- Context reactions ----
+  chrome.tabs.onCreated.addListener(() => {
+    checkTabOverload()
+      .then(() => tryDeliver('check'))
+      .catch(logError);
+  });
+
   // ---- Notification fallback ----
   chrome.notifications.onButtonClicked.addListener((id, buttonIndex) => {
     handleAnswer(id, answerForButton(buttonIndex)).catch(logError);
@@ -83,15 +112,24 @@ export default defineBackground(() => {
   });
 
   onMessages<BackgroundMessage>({
-    'visit/answer': async ({ visitId, answer }) => {
-      await handleAnswer(visitId, answer);
-      return { ok: true };
-    },
+    'visit/answer': ({ visitId, answer }) => handleAnswer(visitId, answer),
     'activity/ping': async ({ typing }, sender) => {
       const settings = await getItem('settings');
       if (settings.enabled) await handleActivity(typing, sender);
       return { ok: true };
     },
-    'debug/visitNow': () => showNow(),
+    'adapter/event': async ({ event }, sender) => {
+      await handleAdapterEvent(event, sender);
+      return { ok: true };
+    },
+    'pomodoro/start': async () => {
+      await startFocus();
+      return { ok: true };
+    },
+    'pomodoro/stop': async () => {
+      await stopPomodoro();
+      return { ok: true };
+    },
+    'debug/visitNow': ({ scenario }) => showDebug(scenario),
   });
 });

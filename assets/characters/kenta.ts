@@ -3,7 +3,7 @@
  * tails flutter behind him (they use the tb-hair-swing animation).
  * Part classes are documented in hana.ts.
  */
-import { characterSvg, faceParts } from './parts';
+import { characterSvg, faceParts, partyHat } from './parts';
 
 const HAIR = '#2f2a3a';
 const SKIN = '#f6d2b4';
@@ -48,4 +48,5 @@ export const kentaSvg = characterSvg(`
       <path d="M27 39 C40 30 80 30 93 39 L93 45 C80 36 40 36 27 45 Z" fill="${BAND}"/>
       <circle cx="91" cy="42" r="3.5" fill="${BAND_DARK}"/>
       ${faceParts({ ink: INK, mouth: MOUTH, brow: HAIR })}
+      ${partyHat(56, 12, -12)}
     </g>`);

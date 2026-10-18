@@ -21,6 +21,16 @@ export type ModeId =
 /** How the user responded to a visit. `ignored` = auto-dismissed after 60 s. */
 export type Answer = 'yes' | 'no' | 'snooze' | 'ignored';
 
+export type StretchId =
+  | 'neckRoll'
+  | 'shoulderShrug'
+  | 'wristStretch'
+  | 'seatedTwist'
+  | 'overheadReach'
+  | 'chestOpener'
+  | 'sideBend'
+  | 'ankleCircles';
+
 // ---------------------------------------------------------------------------
 // Characters
 // ---------------------------------------------------------------------------
@@ -34,6 +44,20 @@ export type CharacterState =
   | 'sad'
   | 'sleepy'
   | 'surprised';
+
+/** Body poses layered on top of a state (posture check, stretches, eye rest). */
+export type Pose =
+  | 'slouch'
+  | 'straight'
+  | 'rest-eyes'
+  | 'neck'
+  | 'shrug'
+  | 'wrist'
+  | 'twist'
+  | 'reach'
+  | 'chest'
+  | 'side'
+  | 'ankle';
 
 export type DefaultCharacterId = 'hana' | 'kenta' | 'kitsu';
 
@@ -68,12 +92,84 @@ export type CharacterRender =
   | { kind: 'custom'; id: string; images: CharacterImages };
 
 // ---------------------------------------------------------------------------
+// Bond (affection, streak unlocks, weekly summary)
+// ---------------------------------------------------------------------------
+
+export type Mood = 'thrilled' | 'happy' | 'okay' | 'worried';
+
+/** Streak milestone rewards: 3 days dance, 7 outfit, 14 lines, 30 celebration. */
+export type UnlockId = 'dance' | 'outfit' | 'lines' | 'celebration';
+
+export interface CharacterBond {
+  /** 10..100, starts at 50. */
+  affection: number;
+  unlocks: UnlockId[];
+  /** Unlocks whose animation has been shown. */
+  announced: UnlockId[];
+}
+
+export interface BondStore {
+  characters: Record<string, CharacterBond>;
+  /** Week key (`YYYY-MM-DD` of its Monday) of the last weekly summary. */
+  lastSummaryWeek: string;
+}
+
+/** Yes counts per mode for the previous week, shown on the first visit of a week. */
+export interface WeeklySummary {
+  counts: Partial<Record<ModeId, number>>;
+  total: number;
+}
+
+// ---------------------------------------------------------------------------
+// Context reactions
+// ---------------------------------------------------------------------------
+
+/** User-facing reaction toggles. */
+export type ReactionId = 'lateNight' | 'longSession' | 'tabOverload' | 'codingWins' | 'socialNudge';
+
+/** What the buddy actually reacts to; coding wins split into win and fail. */
+export type ReactionKind = 'lateNight' | 'longSession' | 'tabOverload' | 'codingWin' | 'codingFail' | 'socialNudge';
+
+/** Sent by a site adapter when it sees a result on the page. */
+export type AdapterEvent = 'codingWin' | 'codingFail';
+
+export interface ReactionState {
+  /** Epoch ms of the last reaction shown (max one per 15 min). */
+  lastReactionAt: number;
+  /** A reaction waiting for a natural pause. */
+  pending: { kind: ReactionKind; since: number } | null;
+  /** Evening date (`YYYY-MM-DD`) of the last late-night reaction. */
+  lastLateNight: string;
+  /** Start of the current stretch of activity without a 5-minute break. */
+  activeSince: number | null;
+  /** Since when the active tab has been a social site. */
+  socialSince: number | null;
+  lastTabOverloadAt: number;
+}
+
+// ---------------------------------------------------------------------------
+// Pomodoro
+// ---------------------------------------------------------------------------
+
+export type PomodoroPhase = 'idle' | 'focus' | 'break';
+
+export interface PomodoroState {
+  phase: PomodoroPhase;
+  /** Epoch ms when the current phase ends. */
+  endsAt: number;
+  /** Completed focus sessions in this run. */
+  round: number;
+  /** A Pomodoro visit waiting to be shown: break start, or break over. */
+  pendingVisit: 'break' | 'end' | null;
+}
+
+// ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
 
 export interface ModeSettings {
   enabled: boolean;
-  /** Minutes between reminders. */
+  /** Minutes between reminders (Pomodoro: focus length). */
   intervalMin: number;
 }
 
@@ -90,11 +186,19 @@ export interface Settings {
   /** Set once the user saved the onboarding page. */
   onboarded: boolean;
   modes: Record<ModeId, ModeSettings>;
+  /** Yes answers per day that count as "done" for a mode's streak. */
+  goals: Record<ModeId, number>;
+  pomodoroBreakMin: number;
   quietHours: QuietHours;
   /** Hostnames of video-call sites; the buddy stays away during calls. */
   meetingSites: string[];
   /** Hostnames where the buddy never walks onto the page. */
   blockedSites: string[];
+  reactions: Record<ReactionId, boolean>;
+  /** Late-night reactions start at this minute of the day (until 5 AM). */
+  lateNightStartMin: number;
+  /** Sites for the optional social-media nudge. */
+  socialSites: string[];
   /** Hidden debug option: every interval becomes 1 minute. */
   debugFastIntervals: boolean;
 }
@@ -121,10 +225,13 @@ export type VisitChannel = 'overlay' | 'notification';
 /** The visit currently on screen, if any. */
 export interface ActiveVisit {
   id: string;
+  kind: VisitKind;
   channel: VisitChannel;
   /** Tab showing the overlay; null for notifications. */
   tabId: number | null;
+  /** Modes the answer applies to (empty for reactions). */
   modes: ModeId[];
+  characterId: string;
   shownAt: number;
 }
 
@@ -162,6 +269,9 @@ export interface StorageSchema {
   characters: CharacterStore;
   schedule: ScheduleState;
   stats: StatsStore;
+  bond: BondStore;
+  pomodoro: PomodoroState;
+  reactions: ReactionState;
 }
 
 export type StorageKey = keyof StorageSchema;
@@ -178,6 +288,8 @@ export interface FocusState {
   lastTypingAt: number;
   /** When the user came back from idle / a locked screen, until a visit uses it. */
   returnedAt: number | null;
+  /** When the user went idle or locked the screen; null while active. */
+  idleSince: number | null;
 }
 
 export interface SessionSchema {
@@ -191,19 +303,51 @@ export interface SessionSchema {
 /** `walk` = walk to the centre; `peek` = gentle peek in from the edge. */
 export type VisitEntrance = 'walk' | 'peek';
 
-export interface Visit {
+interface VisitBase {
   id: string;
-  /** `preview` visits play on the options page and are never reported. */
-  kind: 'reminder' | 'preview';
-  modes: ModeId[];
   characterId: string;
   entrance: VisitEntrance;
+  /** Options-page preview: plays locally, never reported. */
+  preview: boolean;
+  mood: Mood;
+  /** Unlocked perks to wear/use during this visit. */
+  unlocks: UnlockId[];
+  /** Unlocks earned earlier (e.g. via a notification) to celebrate first. */
+  announce: UnlockId[];
+  /** Weekly summary card to present first, on the first visit of a week. */
+  summary: WeeklySummary | null;
 }
+
+export type VisitBody =
+  /** Wellness reminder(s). With pomodoroBreakMin it is a Pomodoro break visit. */
+  | { kind: 'reminder'; modes: ModeId[]; pomodoroBreakMin: number | null }
+  /** Pomodoro break is over: start another focus round? */
+  | { kind: 'pomodoroEnd' }
+  | { kind: 'reaction'; reaction: ReactionKind };
+
+export type VisitKind = VisitBody['kind'];
+export type Visit = VisitBase & VisitBody;
 
 /** Why a tab declined to show a visit right now. */
 export type VisitRefusal = 'typing' | 'fullscreen';
 
 export type VisitShowResult = { ok: true } | { ok: false; reason: VisitRefusal };
+
+/** What the service worker tells the overlay after an answer. */
+export interface AnswerOutcome {
+  /** Streak rewards unlocked by this answer; the overlay celebrates them. */
+  unlocks: UnlockId[];
+}
+
+/** Debug scenarios the popup can trigger. */
+export type DebugScenario =
+  | { type: 'mode'; mode: ModeId }
+  | { type: 'merged' }
+  | { type: 'pomodoroBreak' }
+  | { type: 'pomodoroEnd' }
+  | { type: 'reaction'; reaction: ReactionKind }
+  | { type: 'summary' }
+  | { type: 'unlock' };
 
 // ---------------------------------------------------------------------------
 // Messages
@@ -214,7 +358,10 @@ export type BackgroundMessage =
   | { type: 'visit/answer'; visitId: string; answer: Answer }
   /** Throttled "the user is here" signal. `typing` is a flag, never key data. */
   | { type: 'activity/ping'; typing: boolean }
-  | { type: 'debug/visitNow' };
+  | { type: 'adapter/event'; event: AdapterEvent }
+  | { type: 'pomodoro/start' }
+  | { type: 'pomodoro/stop' }
+  | { type: 'debug/visitNow'; scenario: DebugScenario };
 
 /** Messages sent FROM the service worker TO a tab's content script. */
 export type TabMessage =
@@ -223,8 +370,11 @@ export type TabMessage =
 
 /** Response type for each message, keyed by `type`. */
 export interface MessageResponses {
-  'visit/answer': { ok: true };
+  'visit/answer': AnswerOutcome;
   'activity/ping': { ok: true };
+  'adapter/event': { ok: true };
+  'pomodoro/start': { ok: true };
+  'pomodoro/stop': { ok: true };
   'debug/visitNow': { ok: boolean; reason?: string };
   'visit/show': VisitShowResult;
   'visit/hide': { ok: true };

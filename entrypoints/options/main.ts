@@ -1,20 +1,32 @@
 /**
  * Options page: the 3-step onboarding (character, modes, intervals) with a
- * live preview, plus the focus settings. Opened automatically on install
- * with `?welcome=1`. Nothing is stored until Save, except uploads, which
- * are saved when added so the preview can use them.
+ * live preview, focus settings, context reactions, and the bond & stats tab.
+ * Opened automatically on install with `?welcome=1`. Nothing is stored until
+ * Save, except uploads, which are saved when added so the preview can use them.
  */
 import '@/assets/characters/characters.css';
 import { byId, el } from '@/lib/dom';
 import { formatMinutes, normalizeSite } from '@/lib/focus';
-import { MODE_IDS, MODES, SCHEDULED_MODES } from '@/lib/modes';
-import { getItem, updateItem } from '@/lib/storage';
-import type { ModeId, ModeSettings } from '@/utils/types';
+import { MODE_IDS, MODES } from '@/lib/modes';
+import { getItem, onItemChanged, updateItem } from '@/lib/storage';
+import type { ModeId, ModeSettings, ReactionId } from '@/utils/types';
 import { CharacterPicker, UploadForm } from './characters';
 import { Preview } from './preview';
+import { initStats, renderStats } from './stats';
+import { initTabs } from './tabs';
 
 const MIN_INTERVAL = 1;
 const MAX_INTERVAL = 240;
+const MAX_GOAL = 20;
+
+const REACTION_INFO: Record<ReactionId, { label: string; description: string }> = {
+  lateNight: { label: '🌙 Late night', description: 'A sleepy nudge to go to bed when it gets late.' },
+  longSession: { label: '⏱️ Long session', description: 'After 2 hours without a 5-minute break, suggest a stretch.' },
+  tabOverload: { label: '🗂️ Tab overload', description: 'A joke when you have more than 25 tabs open.' },
+  codingWins: { label: '🏆 Coding wins', description: 'Celebrate LeetCode “Accepted” and PRs you merge on GitHub; cheer you on after a wrong answer.' },
+  socialNudge: { label: '👀 Social nudge', description: 'A playful nudge after 30 minutes on YouTube, Instagram, X or Reddit. Off by default.' },
+};
+const REACTION_IDS: readonly ReactionId[] = ['lateNight', 'longSession', 'tabOverload', 'codingWins', 'socialNudge'];
 
 const welcome = byId('welcome', HTMLParagraphElement);
 const form = byId('setup', HTMLFormElement);
@@ -25,14 +37,13 @@ const quietStart = byId('quiet-start', HTMLInputElement);
 const quietEnd = byId('quiet-end', HTMLInputElement);
 const meetingSites = byId('meeting-sites', HTMLTextAreaElement);
 const blockedSites = byId('blocked-sites', HTMLTextAreaElement);
+const reactionList = byId('reaction-list', HTMLDivElement);
+const lateNightStart = byId('late-night-start', HTMLInputElement);
+const socialSites = byId('social-sites', HTMLTextAreaElement);
 const saveButton = byId('save', HTMLButtonElement);
 const saveMsg = byId('save-msg', HTMLParagraphElement);
 const stage = byId('preview-stage', HTMLDivElement);
 const replayButton = byId('preview-replay', HTMLButtonElement);
-
-function isScheduled(mode: ModeId): boolean {
-  return SCHEDULED_MODES.includes(mode);
-}
 
 /** "HH:MM" → minutes after midnight, or null if the field is empty/invalid. */
 function parseTime(value: string): number | null {
@@ -45,20 +56,45 @@ function parseSites(text: string): string[] {
   return [...new Set(text.split('\n').map(normalizeSite).filter((site) => site !== ''))];
 }
 
-function clampInterval(value: number): number {
-  return Math.min(MAX_INTERVAL, Math.max(MIN_INTERVAL, Math.round(value)));
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+/** A labelled number input that writes into the draft and re-shows the clamped value. */
+function numberField(label: string, suffix: string, value: number, min: number, max: number, onValue: (v: number) => void): HTMLLabelElement {
+  const wrapper = el('label', 'interval-field');
+  const input = el('input');
+  input.type = 'number';
+  input.min = String(min);
+  input.max = String(max);
+  input.step = '1';
+  input.value = String(value);
+  let current = value;
+  input.addEventListener('input', () => {
+    if (!Number.isFinite(input.valueAsNumber)) return;
+    current = clamp(input.valueAsNumber, min, max);
+    onValue(current);
+  });
+  input.addEventListener('change', () => {
+    input.value = String(current);
+  });
+  wrapper.append(el('span', 'interval-prefix', label), input, el('span', '', suffix));
+  return wrapper;
 }
 
 async function main(): Promise<void> {
   const [settings, characters] = await Promise.all([getItem('settings'), getItem('characters')]);
   welcome.hidden = !(new URLSearchParams(location.search).has('welcome') || !settings.onboarded);
 
-  /** The unsaved form state for steps 2 and 3. */
+  // ---- Unsaved form state ----
   const modes: Record<ModeId, ModeSettings> = structuredClone(settings.modes);
+  const goals: Record<ModeId, number> = structuredClone(settings.goals);
+  const reactions: Record<ReactionId, boolean> = structuredClone(settings.reactions);
+  let pomodoroBreakMin = settings.pomodoroBreakMin;
 
   // ---- Preview ----
   const preview = new Preview(stage);
-  const sampleMode = (): ModeId => MODE_IDS.find((id) => modes[id].enabled && isScheduled(id)) ?? 'hydration';
+  const sampleMode = (): ModeId => MODE_IDS.find((id) => modes[id].enabled) ?? 'hydration';
   let replayTimer: number | undefined;
   const replay = (): void => {
     window.clearTimeout(replayTimer);
@@ -84,21 +120,17 @@ async function main(): Promise<void> {
     modeList.replaceChildren(
       ...MODE_IDS.map((id) => {
         const def = MODES[id];
-        const available = isScheduled(id);
-        const label = el('label', available ? 'mode-card' : 'mode-card is-soon');
+        const label = el('label', 'mode-card');
         const input = el('input');
         input.type = 'checkbox';
-        input.checked = available && modes[id].enabled;
-        input.disabled = !available;
+        input.checked = modes[id].enabled;
         input.addEventListener('change', () => {
           modes[id].enabled = input.checked;
           renderIntervals();
           replaySoon();
         });
         const text = el('span', 'mode-text');
-        const title = el('span', 'mode-title', `${def.emoji} ${def.label}`);
-        if (!available) title.append(el('span', 'soon-tag', 'Coming soon'));
-        text.append(title, el('span', 'mode-desc', def.description));
+        text.append(el('span', 'mode-title', `${def.emoji} ${def.label}`), el('span', 'mode-desc', def.description));
         label.append(input, text);
         return label;
       }),
@@ -107,31 +139,30 @@ async function main(): Promise<void> {
 
   // ---- Step 3 ----
   const renderIntervals = (): void => {
-    const rows = MODE_IDS.filter((id) => modes[id].enabled && isScheduled(id)).map((id) => {
-      const def = MODES[id];
+    const rows = MODE_IDS.filter((id) => modes[id].enabled).map((id) => {
       const row = el('div', 'interval-row');
-      const name = `${def.emoji} ${def.label}`;
+      row.append(el('span', 'interval-name', `${MODES[id].emoji} ${MODES[id].label}`));
+      const setMinutes = (v: number): void => {
+        modes[id].intervalMin = v;
+      };
       if (id === 'entertainment') {
-        row.append(el('span', 'interval-name', name), el('span', 'interval-note', 'Randomly every 60–120 min'));
-        return row;
+        row.append(el('span', 'interval-note', 'Randomly every 60–120 min'));
+      } else if (id === 'pomodoro') {
+        row.append(
+          numberField('Focus', 'min', modes[id].intervalMin, MIN_INTERVAL, MAX_INTERVAL, setMinutes),
+          numberField('Break', 'min', pomodoroBreakMin, 1, 60, (v) => {
+            pomodoroBreakMin = v;
+          }),
+        );
+      } else {
+        row.append(numberField('Every', 'min', modes[id].intervalMin, MIN_INTERVAL, MAX_INTERVAL, setMinutes));
       }
-      const label = el('label', 'interval-field');
-      const input = el('input');
-      input.type = 'number';
-      input.min = String(MIN_INTERVAL);
-      input.max = String(MAX_INTERVAL);
-      input.step = '1';
-      input.value = String(modes[id].intervalMin);
-      input.addEventListener('input', () => {
-        const value = input.valueAsNumber;
-        if (Number.isFinite(value)) modes[id].intervalMin = clampInterval(value);
-      });
-      input.addEventListener('change', () => {
-        input.value = String(modes[id].intervalMin);
-      });
-      const prefix = id === 'pomodoro' ? 'Focus for' : 'Every';
-      label.append(el('span', 'interval-name', name), el('span', 'interval-prefix', prefix), input, el('span', '', 'min'));
-      row.append(label);
+      const unit = id === 'pomodoro' ? 'sessions/day' : 'per day';
+      row.append(
+        numberField('Goal', unit, goals[id], 1, MAX_GOAL, (v) => {
+          goals[id] = v;
+        }),
+      );
       return row;
     });
     if (rows.length === 0) rows.push(el('p', 'hint', 'Pick at least one mode above.'));
@@ -148,6 +179,35 @@ async function main(): Promise<void> {
   meetingSites.value = settings.meetingSites.join('\n');
   blockedSites.value = settings.blockedSites.join('\n');
 
+  // ---- Reactions ----
+  reactionList.replaceChildren(
+    ...REACTION_IDS.map((id) => {
+      const label = el('label', 'mode-card');
+      const input = el('input');
+      input.type = 'checkbox';
+      input.checked = reactions[id];
+      input.addEventListener('change', () => {
+        reactions[id] = input.checked;
+      });
+      const text = el('span', 'mode-text');
+      text.append(el('span', 'mode-title', REACTION_INFO[id].label), el('span', 'mode-desc', REACTION_INFO[id].description));
+      label.append(input, text);
+      return label;
+    }),
+  );
+  lateNightStart.value = formatMinutes(settings.lateNightStartMin);
+  socialSites.value = settings.socialSites.join('\n');
+
+  // ---- Tabs & stats ----
+  initStats();
+  initTabs((tab) => {
+    if (tab === 'stats') void renderStats();
+    else preview.stop();
+    if (tab === 'setup') replaySoon();
+  });
+  onItemChanged('stats', () => void renderStats());
+  onItemChanged('bond', () => void renderStats());
+
   // ---- Save ----
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -158,11 +218,14 @@ async function main(): Promise<void> {
     saveButton.disabled = true;
     const meeting = parseSites(meetingSites.value);
     const blocked = parseSites(blockedSites.value);
+    const social = parseSites(socialSites.value);
     try {
       await updateItem('settings', (s) => ({
         ...s,
         onboarded: true,
         modes: structuredClone(modes),
+        goals: structuredClone(goals),
+        pomodoroBreakMin,
         quietHours: {
           enabled: quietEnabled.checked,
           startMin: parseTime(quietStart.value) ?? s.quietHours.startMin,
@@ -170,12 +233,16 @@ async function main(): Promise<void> {
         },
         meetingSites: meeting,
         blockedSites: blocked,
+        reactions: structuredClone(reactions),
+        lateNightStartMin: parseTime(lateNightStart.value) ?? s.lateNightStartMin,
+        socialSites: social,
       }));
       await updateItem('characters', (c) => ({ ...c, activeId: picker.selected }));
       meetingSites.value = meeting.join('\n');
       blockedSites.value = blocked.join('\n');
+      socialSites.value = social.join('\n');
       welcome.hidden = true;
-      const anyMode = MODE_IDS.some((id) => modes[id].enabled && isScheduled(id));
+      const anyMode = MODE_IDS.some((id) => modes[id].enabled);
       saveMsg.textContent = anyMode
         ? 'Saved! Your buddy will drop by at a natural pause.'
         : 'Saved. No modes are on, so your buddy will rest for now.';

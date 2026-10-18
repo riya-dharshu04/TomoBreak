@@ -1,17 +1,20 @@
 /**
  * Content script. Stays light until the service worker asks for a visit:
  * it registers a few passive listeners for throttled activity reports, and
- * builds DOM only while a visit plays.
+ * builds DOM only while a visit plays. On a few coding sites it also runs a
+ * site adapter that watches for results.
  *
  * It deliberately does not subscribe to chrome.storage changes: every tab
  * would then receive each change, including multi-MB character uploads.
  * The service worker sends `visit/hide` instead when TomoBreak is turned off.
  */
 import { defineContentScript } from 'wxt/utils/define-content-script';
+import { adapterFor } from '@/lib/adapters';
 import { resolveCharacter } from '@/lib/characters';
 import { onMessages, sendToBackground } from '@/lib/messaging';
 import { ActivityTracker } from '@/lib/overlay/activity';
 import { Overlay } from '@/lib/overlay/overlay';
+import { getItem } from '@/lib/storage';
 import type { TabMessage } from '@/utils/types';
 
 export default defineContentScript({
@@ -19,6 +22,7 @@ export default defineContentScript({
   runAt: 'document_idle',
   main(ctx) {
     let overlay: Overlay | null = null;
+    let stopAdapter: (() => void) | null = null;
 
     const hide = (): void => {
       overlay?.destroy();
@@ -33,6 +37,19 @@ export default defineContentScript({
     });
     activity.start();
 
+    // Site adapter (LeetCode, GitHub): only on its sites, only if enabled.
+    // Settings are read once; toggling takes effect on the next page load.
+    const adapter = adapterFor(location.hostname);
+    if (adapter) {
+      void getItem('settings').then((settings) => {
+        if (ctx.isInvalid || !settings.enabled || !settings.reactions.codingWins) return;
+        stopAdapter = adapter.start((event) => {
+          if (ctx.isInvalid) return;
+          sendToBackground({ type: 'adapter/event', event }).catch(() => undefined);
+        });
+      });
+    }
+
     onMessages<TabMessage>({
       'visit/show': async ({ visit }) => {
         // Last-moment checks only the page itself can make.
@@ -41,11 +58,7 @@ export default defineContentScript({
         hide();
         const character = await resolveCharacter(visit.characterId);
         const current = new Overlay(visit, character, {
-          onAnswer: (answer) => {
-            sendToBackground({ type: 'visit/answer', visitId: visit.id, answer }).catch(() => {
-              // Extension reloaded mid-visit; the SW's timeout alarm cleans up.
-            });
-          },
+          onAnswer: (answer) => sendToBackground({ type: 'visit/answer', visitId: visit.id, answer }),
           onClosed: () => {
             if (overlay === current) overlay = null;
           },
@@ -63,6 +76,7 @@ export default defineContentScript({
     // Extension reloaded/updated: this script is orphaned, so clean up.
     ctx.onInvalidated(() => {
       activity.stop();
+      stopAdapter?.();
       hide();
     });
   },

@@ -5,7 +5,7 @@
  */
 import { DEFAULT_CHARACTERS } from '@/assets/characters';
 import { imageForState } from '@/lib/characters';
-import type { CharacterRender, CharacterState } from '@/utils/types';
+import type { CharacterRender, CharacterState, Mood, Pose, UnlockId } from '@/utils/types';
 
 export class CharacterView {
   readonly element: HTMLDivElement;
@@ -40,5 +40,22 @@ export class CharacterView {
       this.img.src = image.src;
     }
     this.element.toggleAttribute('data-own', image?.own ?? false);
+  }
+
+  /** Layer a body pose (posture, stretch, eye rest) over the state; null clears it. */
+  setPose(pose: Pose | null): void {
+    if (pose) this.element.dataset.pose = pose;
+    else delete this.element.dataset.pose;
+  }
+
+  /** Mood changes the idle expression (see characters.css). */
+  setMood(mood: Mood): void {
+    this.element.dataset.mood = mood;
+  }
+
+  /** Wear unlocked streak rewards: the second dance and the party hat. */
+  setLook(unlocks: readonly UnlockId[]): void {
+    if (unlocks.includes('dance')) this.element.dataset.dance = '2';
+    this.element.toggleAttribute('data-outfit', unlocks.includes('outfit'));
   }
 }

@@ -47,6 +47,20 @@ export function faceParts({ ink, mouth, brow }: FaceColors): string {
       <path class="tb-tear" d="M77 66 q3 5 0 7 q-3 -2 0 -7 Z" fill="#7fd0ff"/>`;
 }
 
+/**
+ * Party hat: the 7-day streak outfit. Hidden unless the character has
+ * `data-outfit`. (x, y) is the centre of the hat's brim on the head.
+ */
+export function partyHat(x: number, y: number, tilt: number): string {
+  return `
+      <g class="tb-hat" transform="translate(${x} ${y}) rotate(${tilt})">
+        <path d="M-11 0 L0 -24 L11 0 Z" fill="#ff7aa2"/>
+        <path d="M-7.5 -8 L7.5 -8 M-4 -16 L4 -16" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+        <ellipse cx="0" cy="0" rx="12" ry="3" fill="#6c5ce7"/>
+        <circle cx="0" cy="-25" r="3.5" fill="#ffc94d"/>
+      </g>`;
+}
+
 /** Floating z's (sleepy) and sparkles (happy). Last children of tb-figure. */
 const EXTRAS = `
     <g class="tb-zzz" fill="#8a7fd0" font-family="system-ui, sans-serif" font-weight="700">

@@ -6,25 +6,32 @@
  * viewport with pointer-events: none; only the character and bubble accept
  * clicks. destroy() removes the host entirely, leaving no trace in the DOM.
  *
+ * This class only provides the stage: walking in and out, the bubble,
+ * buttons, timers and effects. What happens during a visit is scripted in
+ * flows.ts.
+ *
  * The options page reuses it for the live preview by passing a `container`:
  * the host then fills that element instead of the viewport.
  */
 import characterCss from '@/assets/characters/characters.css?inline';
-import { dialogueFor, pick, type ModeDialogue } from '@/data/dialogue';
-import type { Answer, CharacterRender, CharacterState, Visit } from '@/utils/types';
+import type { Answer, AnswerOutcome, CharacterRender, CharacterState, Pose, UnlockId, Visit } from '@/utils/types';
 import { CharacterView } from './character-view';
+import { ESCAPE, TIMEOUT, runVisit, type Choice, type Stage } from './flows';
 import overlayCss from './overlay.css?inline';
 
 const HOST_TAG = 'tomobreak-buddy';
+/** Unanswered questions count as "ignored" after this long. */
 const AUTO_DISMISS_MS = 60_000;
 const WALK_PX_PER_S = 240;
 const FADE_MS = 400;
 /** Share of the character that is visible during a gentle "peek" entrance. */
 const PEEK_VISIBLE = 0.6;
+const CONFETTI_PIECES = 28;
+const CONFETTI_COLORS = ['#ff7aa2', '#ffc94d', '#7fd0ff', '#8d7ff0', '#7ee3a1'];
 
 export interface OverlayCallbacks {
-  /** Called once, as soon as the user answers (before the reaction plays). */
-  onAnswer: (answer: Answer) => void;
+  /** Report the user's answer; resolves with any streak unlocks it earned. */
+  onAnswer: (answer: Answer) => Promise<AnswerOutcome>;
   /** Called once, after the host element has been removed. */
   onClosed: () => void;
 }
@@ -36,19 +43,19 @@ export interface OverlayOptions {
   autoFocus?: boolean;
 }
 
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
   if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
   return node;
 }
 
-export class Overlay {
-  private readonly visit: Visit;
+export class Overlay implements Stage {
+  readonly visit: Visit;
+  readonly reducedMotion: boolean;
   private readonly callbacks: OverlayCallbacks;
   private readonly container: HTMLElement | null;
   private readonly autoFocus: boolean;
-  private readonly dialogue: ModeDialogue;
-  private readonly reducedMotion: boolean;
 
   private readonly host: HTMLElement;
   private readonly layer: HTMLDivElement;
@@ -56,12 +63,16 @@ export class Overlay {
   private readonly character: CharacterView;
   private readonly bubble: HTMLDivElement;
   private readonly text: HTMLParagraphElement;
+  /** Holds a card (weekly summary) or a countdown timer under the text. */
+  private readonly extra: HTMLDivElement;
   private readonly actions: HTMLDivElement;
 
   private readonly timers = new Set<number>();
   private readonly animations = new Set<Animation>();
+  /** What Escape does right now (answer a question, skip a timer), if anything. */
+  private escapeAction: (() => void) | null = null;
+  private readonly look: UnlockId[];
   private previousFocus: Element | null = null;
-  private answered = false;
   private destroyed = false;
 
   constructor(visit: Visit, character: CharacterRender, callbacks: OverlayCallbacks, options: OverlayOptions = {}) {
@@ -69,9 +80,8 @@ export class Overlay {
     this.callbacks = callbacks;
     this.container = options.container ?? null;
     this.autoFocus = options.autoFocus ?? true;
-    // Merged multi-mode dialogue arrives in Phase 4; until then use the first.
-    this.dialogue = dialogueFor(visit.modes[0] ?? 'hydration');
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.look = [...visit.unlocks];
 
     this.host = document.createElement(HOST_TAG);
     if (this.container) this.host.setAttribute('data-embedded', '');
@@ -98,10 +108,13 @@ export class Overlay {
     this.text = el('p', 'text');
     // Screen readers announce each new line the buddy says.
     this.text.setAttribute('aria-live', 'polite');
+    this.extra = el('div', 'extra');
     this.actions = el('div', 'actions');
-    this.bubble.append(this.text, this.actions);
+    this.bubble.append(this.text, this.extra, this.actions);
 
     this.character = new CharacterView(character, 'character');
+    this.character.setMood(visit.mood);
+    this.character.setLook(this.look);
 
     this.buddy.append(this.bubble, this.character.element);
     this.layer.append(this.buddy);
@@ -111,14 +124,15 @@ export class Overlay {
   /** Run the whole visit. Resolves when the buddy has left (or was destroyed). */
   async play(): Promise<void> {
     (this.container ?? document.documentElement).append(this.host);
+    window.addEventListener('keydown', this.onKeyDown, true);
     await this.enter();
     if (this.destroyed) return;
-
-    this.setState('talk');
-    this.say(pick(this.dialogue.prompt));
-    this.showButtons();
-    window.addEventListener('keydown', this.onKeyDown, true);
-    this.later(() => void this.answer('ignored'), AUTO_DISMISS_MS);
+    await runVisit(this);
+    if (this.destroyed) return;
+    this.bubble.classList.remove('is-visible');
+    this.setPose(null);
+    await this.exit();
+    this.destroy();
   }
 
   /** Remove everything immediately. Safe to call more than once. */
@@ -139,54 +153,160 @@ export class Overlay {
     this.callbacks.onClosed();
   }
 
-  // ---- Flow ---------------------------------------------------------------
+  // ---- Stage: character ---------------------------------------------------
 
-  private async answer(answer: Answer): Promise<void> {
-    if (this.answered || this.destroyed) return;
-    this.answered = true;
-    window.removeEventListener('keydown', this.onKeyDown, true);
-    for (const id of this.timers) window.clearTimeout(id);
-    this.timers.clear();
-    this.actions.replaceChildren();
-    this.callbacks.onAnswer(answer);
-
-    await this.react(answer);
-    if (this.destroyed) return;
-    this.bubble.classList.remove('is-visible');
-    await this.exit();
-    this.destroy();
+  setState(state: CharacterState): void {
+    this.character.setState(state);
   }
 
-  private async react(answer: Answer): Promise<void> {
-    const d = this.dialogue;
-    switch (answer) {
-      case 'yes':
-        this.setState('happy');
-        this.say(pick(d.yes));
-        await this.wait(5000);
-        return;
-      case 'no':
-        this.setState('sad');
-        this.say(pick(d.no));
-        await this.wait(1800);
-        if (d.noFollowUp) {
-          this.setState('talk');
-          this.say(d.noFollowUp);
-          await this.wait(2500);
-        }
-        return;
-      case 'snooze':
-        this.setState('idle');
-        this.say(pick(d.snooze));
-        await this.wait(2200);
-        return;
-      case 'ignored':
-        this.setState('sleepy');
-        this.say(pick(d.ignored));
-        await this.wait(2200);
-        return;
+  setPose(pose: Pose | null): void {
+    this.character.setPose(pose);
+  }
+
+  wear(unlock: UnlockId): void {
+    if (!this.look.includes(unlock)) this.look.push(unlock);
+    this.character.setLook(this.look);
+  }
+
+  confetti(): void {
+    if (this.reducedMotion || this.destroyed) return;
+    const burst = el('div', 'confetti');
+    burst.setAttribute('aria-hidden', 'true');
+    for (let i = 0; i < CONFETTI_PIECES; i += 1) {
+      const piece = el('span');
+      // Random spread, set through CSSOM custom properties read by the keyframes.
+      piece.style.setProperty('--dx', `${Math.round((Math.random() - 0.5) * 260)}px`);
+      piece.style.setProperty('--dy', `${Math.round(-80 - Math.random() * 140)}px`);
+      piece.style.setProperty('--rot', `${Math.round(Math.random() * 720 - 360)}deg`);
+      piece.style.setProperty('--delay', `${Math.round(Math.random() * 250)}ms`);
+      piece.style.setProperty('--c', CONFETTI_COLORS[i % CONFETTI_COLORS.length] ?? '#ffc94d');
+      burst.append(piece);
     }
+    this.buddy.append(burst);
+    this.later(() => burst.remove(), 2600);
   }
+
+  // ---- Stage: bubble ------------------------------------------------------
+
+  say(line: string): void {
+    this.text.textContent = line;
+    this.extra.replaceChildren();
+    this.bubble.classList.add('is-visible');
+  }
+
+  showCard(title: string, rows: readonly string[], footer: string): void {
+    this.say(title);
+    const list = el('ul', 'card-rows');
+    for (const row of rows) list.append(el('li', '', row));
+    this.extra.replaceChildren(list, el('p', 'card-footer', footer));
+  }
+
+  ask(choices: readonly Choice[], timeoutMs = AUTO_DISMISS_MS): Promise<string> {
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = (id: string): void => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timerId);
+        this.timers.delete(timerId);
+        this.escapeAction = null;
+        this.actions.replaceChildren();
+        resolve(id);
+      };
+      const timerId = this.later(() => finish(TIMEOUT), timeoutMs);
+      this.actions.replaceChildren(
+        ...choices.map((choice) => {
+          const button = el('button', choice.primary ? 'primary' : undefined, choice.label);
+          button.type = 'button';
+          button.addEventListener('click', () => finish(choice.id));
+          return button;
+        }),
+      );
+      this.escapeAction = () => finish(ESCAPE);
+      this.focusFirstButton();
+    });
+  }
+
+  /** Show a countdown with a skip button. Resolves true if it ran to the end. */
+  countdown(seconds: number, skipLabel: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const timer = el('div', 'timer');
+      const number = el('span', 'timer-num', String(seconds));
+      // The number changes every second; announcing each tick would be noise.
+      number.setAttribute('aria-hidden', 'true');
+      const bar = el('span', 'timer-bar');
+      const fill = el('span', 'timer-fill');
+      bar.append(fill);
+      timer.append(number, bar);
+      this.extra.replaceChildren(timer);
+      this.bubble.classList.add('is-visible');
+
+      const progress = fill.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], {
+        duration: seconds * 1000,
+        easing: 'linear',
+        fill: 'forwards',
+      });
+      this.animations.add(progress);
+
+      let remaining = seconds;
+      let settled = false;
+      const finish = (completed: boolean): void => {
+        if (settled) return;
+        settled = true;
+        this.escapeAction = null;
+        progress.cancel();
+        this.animations.delete(progress);
+        this.actions.replaceChildren();
+        this.extra.replaceChildren();
+        resolve(completed);
+      };
+      const tick = (): void => {
+        if (settled) return;
+        remaining -= 1;
+        number.textContent = String(Math.max(0, remaining));
+        if (remaining <= 0) finish(true);
+        else this.later(tick, 1000);
+      };
+      this.later(tick, 1000);
+
+      const skip = el('button', undefined, skipLabel);
+      skip.type = 'button';
+      skip.addEventListener('click', () => finish(false));
+      this.actions.replaceChildren(skip);
+      this.escapeAction = () => finish(false);
+      this.focusFirstButton();
+    });
+  }
+
+  report(answer: Answer): Promise<AnswerOutcome> {
+    return this.callbacks.onAnswer(answer).catch((): AnswerOutcome => ({ unlocks: [] }));
+  }
+
+  /** Never resolves if destroyed first, which simply ends the flow. */
+  wait(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      this.later(resolve, ms);
+    });
+  }
+
+  private focusFirstButton(): void {
+    if (!this.autoFocus) return;
+    // Remember where focus was the first time we take it; restored on destroy.
+    if (this.previousFocus === null && document.activeElement !== this.host) {
+      this.previousFocus = document.activeElement;
+    }
+    this.actions.querySelector('button')?.focus({ preventScroll: true });
+  }
+
+  /** Escape answers Snooze / skips a timer. Only the Escape key is looked at. */
+  private readonly onKeyDown = (event: KeyboardEvent): void => {
+    if (event.key !== 'Escape' || !this.escapeAction) return;
+    const focusInside = document.activeElement === this.host;
+    // In the preview, Escape elsewhere on the options page is not for us.
+    if (this.container && !focusInside) return;
+    if (focusInside) event.stopPropagation();
+    this.escapeAction();
+  };
 
   // ---- Movement -----------------------------------------------------------
 
@@ -266,59 +386,14 @@ export class Overlay {
     }
   }
 
-  // ---- Bubble -------------------------------------------------------------
-
-  private say(line: string): void {
-    this.text.textContent = line;
-    this.bubble.classList.add('is-visible');
-  }
-
-  private showButtons(): void {
-    const { buttons } = this.dialogue;
-    const specs: { answer: Answer; label: string; primary: boolean }[] = [
-      { answer: 'yes', label: buttons.yes, primary: true },
-      { answer: 'no', label: buttons.no, primary: false },
-      { answer: 'snooze', label: buttons.snooze, primary: false },
-    ];
-    for (const spec of specs) {
-      const button = el('button', spec.primary ? 'primary' : undefined);
-      button.type = 'button';
-      button.textContent = spec.label;
-      button.addEventListener('click', () => void this.answer(spec.answer));
-      this.actions.append(button);
-    }
-    if (!this.autoFocus) return;
-    // Move focus to the bubble so it is keyboard usable; restored on destroy.
-    this.previousFocus = document.activeElement;
-    this.actions.querySelector('button')?.focus({ preventScroll: true });
-  }
-
-  /** Escape = Snooze. Only the Escape key is looked at; nothing is recorded. */
-  private readonly onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key !== 'Escape') return;
-    const focusInside = document.activeElement === this.host;
-    // In the preview, Escape elsewhere on the options page is not for us.
-    if (this.container && !focusInside) return;
-    if (focusInside) event.stopPropagation();
-    void this.answer('snooze');
-  };
-
   // ---- Helpers ------------------------------------------------------------
 
-  private setState(state: CharacterState): void {
-    this.character.setState(state);
-  }
-
-  private later(callback: () => void, ms: number): void {
+  private later(callback: () => void, ms: number): number {
     const id = window.setTimeout(() => {
       this.timers.delete(id);
       callback();
     }, ms);
     this.timers.add(id);
-  }
-
-  /** Never resolves if destroyed first, which simply ends the flow. */
-  private wait(ms: number): Promise<void> {
-    return new Promise((resolve) => this.later(resolve, ms));
+    return id;
   }
 }

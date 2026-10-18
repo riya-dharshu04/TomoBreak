@@ -13,11 +13,13 @@
  *   3. The answer (or a timeout) finishes the visit and schedules each mode
  *      again.
  */
-import { MODE_IDS, SCHEDULED_MODES, SNOOZE_MIN, effectiveIntervalMin } from '@/lib/modes';
+import { applyBondAnswer, markAnnounced } from '@/lib/bond';
+import { MODE_IDS, SCHEDULED_MODES, SNOOZE_MIN, effectiveIntervalMin, nextDelayMin } from '@/lib/modes';
 import { clearNotification } from '@/lib/notify';
+import { handlePomodoroAnswer } from '@/lib/pomodoro';
 import { recordAnswer } from '@/lib/stats';
 import { getItem, updateItem } from '@/lib/storage';
-import type { ActiveVisit, Answer, ModeId, ScheduleState, VisitChannel } from '@/utils/types';
+import type { ActiveVisit, Answer, AnswerOutcome, ModeId, ScheduleState, VisitChannel } from '@/utils/types';
 
 const MINUTE = 60_000;
 const MODE_ALARM_PREFIX = 'mode:';
@@ -113,7 +115,7 @@ export async function syncSchedules(): Promise<void> {
       const interval = effectiveIntervalMin(settings, mode);
       const existing = modes[mode];
       if (!existing || existing.intervalMin !== interval) {
-        modes[mode] = { nextDueAt: now + interval * MINUTE, intervalMin: interval, pendingSince: null };
+        modes[mode] = { nextDueAt: now + nextDelayMin(settings, mode) * MINUTE, intervalMin: interval, pendingSince: null };
       }
     }
     const visit = current.activeVisit;
@@ -196,7 +198,7 @@ async function rescheduleModes(modes: readonly ModeId[], delayOverrideMin?: numb
     for (const mode of modes) {
       const entry = next[mode];
       if (!entry) continue; // e.g. a debug visit for a mode that is switched off
-      const delay = delayOverrideMin ?? effectiveIntervalMin(settings, mode);
+      const delay = delayOverrideMin ?? nextDelayMin(settings, mode);
       next[mode] = { ...entry, nextDueAt: now + delay * MINUTE, pendingSince: null };
     }
     return { ...s, modes: next };
@@ -205,12 +207,33 @@ async function rescheduleModes(modes: readonly ModeId[], delayOverrideMin?: numb
   await syncAlarms(schedule);
 }
 
-export async function handleAnswer(visitId: string, answer: Answer): Promise<void> {
+/**
+ * The user answered a visit (or it timed out). Records stats and bond for
+ * reminders, steers the Pomodoro timer, and returns any streak unlocks.
+ */
+export async function handleAnswer(visitId: string, answer: Answer): Promise<AnswerOutcome> {
   const visit = await takeVisit(visitId);
-  if (!visit) return; // stale or duplicate
-  for (const mode of visit.modes) await recordAnswer(mode, answer);
-  await rescheduleModes(visit.modes, answer === 'snooze' ? SNOOZE_MIN : undefined);
+  if (!visit) return { unlocks: [] }; // stale or duplicate
+  let unlocks: AnswerOutcome['unlocks'] = [];
+  switch (visit.kind) {
+    case 'reminder':
+      if (visit.modes.length === 0) break; // a Pomodoro break with nothing bundled
+      for (const mode of visit.modes) await recordAnswer(mode, answer);
+      await rescheduleModes(visit.modes, answer === 'snooze' ? SNOOZE_MIN : undefined);
+      // One visit = one affection change, however many modes it bundled.
+      unlocks = await applyBondAnswer(visit.characterId, answer);
+      // The overlay celebrates them right away; notifications leave them for
+      // the next on-page visit.
+      if (visit.channel === 'overlay') await markAnnounced(visit.characterId, unlocks);
+      break;
+    case 'pomodoroEnd':
+      await handlePomodoroAnswer(answer);
+      break;
+    case 'reaction':
+      break; // reactions are just for fun: no stats, no affection
+  }
   if (visit.channel === 'notification') await clearNotification(visitId);
+  return { unlocks };
 }
 
 /** No answer arrived in time. */
@@ -225,5 +248,7 @@ export async function handleVisitTimeout(): Promise<void> {
   // The tab was closed or navigated mid-visit. Not the user's choice, so no
   // stats; just come back a bit later.
   const visit = await takeVisit(activeVisit.id);
-  if (visit) await rescheduleModes(visit.modes, SNOOZE_MIN);
+  if (!visit) return;
+  if (visit.kind === 'pomodoroEnd') await handlePomodoroAnswer('snooze');
+  else await rescheduleModes(visit.modes, SNOOZE_MIN);
 }

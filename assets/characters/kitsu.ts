@@ -3,7 +3,7 @@
  * tb-hair-swing part) and a floating spirit flame. Part classes are
  * documented in hana.ts.
  */
-import { characterSvg, faceParts } from './parts';
+import { characterSvg, faceParts, partyHat } from './parts';
 
 const FUR = '#f39c4a';
 const FUR_DARK = '#d9772b';
@@ -49,4 +49,5 @@ export const kitsuSvg = characterSvg(`
       <path d="M53 34 Q60 26 67 34 Q60 38 53 34 Z" fill="${MARK}"/>
       <ellipse cx="60" cy="68" rx="2.6" ry="1.8" fill="${INK}"/>
       ${faceParts({ ink: INK, mouth: MOUTH, brow: FUR_DARK })}
+      ${partyHat(60, 30, 0)}
     </g>`);

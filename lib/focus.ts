@@ -57,12 +57,12 @@ export const IDLE_DETECTION_S = 60;
 // ---- Session state ----------------------------------------------------------
 
 function defaultFocus(): FocusState {
-  return { lastActivityAt: 0, lastTypingAt: 0, returnedAt: null };
+  return { lastActivityAt: 0, lastTypingAt: 0, returnedAt: null, idleSince: null };
 }
 
 export async function getFocus(): Promise<FocusState> {
   const result = (await chrome.storage.session.get('focus')) as Partial<SessionSchema>;
-  return result.focus ?? defaultFocus();
+  return { ...defaultFocus(), ...result.focus };
 }
 
 /** Serialised read-modify-write, like updateItem in lib/storage.ts. */
@@ -87,12 +87,19 @@ export function recordActivity(typing: boolean, now = Date.now()): Promise<Focus
   }));
 }
 
-export function recordIdleState(state: IdleState, now = Date.now()): Promise<FocusState> {
-  return updateFocus((focus) => ({
-    ...focus,
+/**
+ * Track idle transitions. Returns how long the user was away when they come
+ * back (0 otherwise), so a long absence can count as a break.
+ */
+export async function recordIdleState(state: IdleState, now = Date.now()): Promise<number> {
+  const result = { awayMs: 0 };
+  await updateFocus((focus) => {
+    if (state !== 'active') return { ...focus, returnedAt: null, idleSince: focus.idleSince ?? now };
+    result.awayMs = focus.idleSince === null ? 0 : now - focus.idleSince;
     // Leaving idle starts the "show ~5 s after they return" window.
-    returnedAt: state === 'active' ? now : null,
-  }));
+    return { ...focus, returnedAt: now, idleSince: null };
+  });
+  return result.awayMs;
 }
 
 /** A visit used up the return-from-idle pause. */

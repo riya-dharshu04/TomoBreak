@@ -90,6 +90,48 @@ body {
   background: var(--accent-soft);
 }
 
+/* ---- Tabs --------------------------------------------------------------- */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 10px 16px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.tab[aria-selected='true'] {
+  border-bottom-color: var(--accent);
+  color: var(--fg);
+}
+
+.tab:hover {
+  color: var(--fg);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.panel-narrow {
+  max-width: 760px;
+  padding-top: 16px;
+}
+
+.reaction-list {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
 /* ---- Layout ------------------------------------------------------------- */
 
 .layout {
@@ -500,7 +542,17 @@ input[type='checkbox'] {
 }
 
 .interval-field input {
-  width: 80px;
+  width: 72px;
+}
+
+.interval-row {
+  gap: 8px 18px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.interval-row:last-child {
+  border-bottom: 0;
 }
 
 /* ---- Save --------------------------------------------------------------- */
@@ -570,7 +622,222 @@ input[type='checkbox'] {
 .w60 { width: 60%; }
 .w40 { width: 40%; }
 
+/* ---- Bond & stats --------------------------------------------------------- */
+
+.panel-stats {
+  display: grid;
+  gap: 16px;
+  padding: 16px 0 48px;
+}
+
+.bond-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 20px;
+}
+
+.bond-avatar {
+  width: 96px;
+  height: 128px;
+  flex: none;
+}
+
+.bond-info {
+  flex: 1;
+  min-width: 220px;
+}
+
+.bond-info h2 {
+  margin-bottom: 4px;
+}
+
+.bond-mood {
+  margin: 0 0 12px;
+}
+
+.meter-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.meter {
+  height: 12px;
+  margin: 4px 0 8px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+
+.meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+.stats-grid {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 900px) {
+  .stats-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.streak-list,
+.unlock-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.streak,
+.unlock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.streak:last-child,
+.unlock:last-child {
+  border-bottom: 0;
+}
+
+.streak-name,
+.unlock-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.streak-today,
+.unlock-status,
+.unlock-days {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.unlock-days {
+  min-width: 56px;
+}
+
+.unlock.is-unlocked .unlock-status {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.history-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.history-head h2 {
+  margin: 0;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+}
+
+.segmented label {
+  position: relative;
+  cursor: pointer;
+}
+
+.segmented input {
+  position: absolute;
+  opacity: 0;
+}
+
+.segmented span {
+  display: block;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.segmented input:checked + span {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.segmented input:focus-visible + span {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px 24px;
+}
+
+.chart {
+  margin: 0;
+}
+
+.chart-title {
+  margin-bottom: 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart-axis {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.chart-label {
+  fill: var(--muted);
+  font-size: 9px;
+}
+
+.chart-fill {
+  fill: var(--accent);
+}
+
+.chart-hit {
+  fill: transparent;
+}
+
+.chart-bar:hover .chart-fill {
+  fill: var(--focus);
+}
+
+.chart-bar:hover .chart-hit {
+  fill: var(--accent-soft);
+  opacity: 0.6;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .meter-fill {
+    transition: none;
+  }
   .char-option {
     transition: none;
   }

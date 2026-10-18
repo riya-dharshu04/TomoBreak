@@ -124,6 +124,87 @@
   bottom: 18px;
 }
 
+/* ---- Weekly summary card ---- */
+
+.extra:empty {
+  display: none;
+}
+
+.card-rows {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+}
+
+.card-rows li {
+  padding: 3px 0;
+}
+
+.card-footer {
+  margin: 6px 0 0;
+  font-weight: 600;
+}
+
+/* ---- Countdown (eye rest, stretches) ---- */
+
+.timer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 200px;
+  margin-top: 10px;
+}
+
+.timer-num {
+  min-width: 2ch;
+  font: 700 26px/1 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--tb-btn-primary-bg);
+}
+
+.timer-bar {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--tb-btn-bg);
+  overflow: hidden;
+}
+
+.timer-fill {
+  display: block;
+  height: 100%;
+  background: var(--tb-btn-primary-bg);
+  transform-origin: 0 50%;
+}
+
+/* ---- Confetti ---- */
+
+.confetti {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.confetti span {
+  position: absolute;
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  background: var(--c);
+  opacity: 0;
+  animation: tb-confetti 2.2s cubic-bezier(0.2, 0.7, 0.4, 1) var(--delay) forwards;
+}
+
+@keyframes tb-confetti {
+  0% { opacity: 1; transform: translate(0, 0) rotate(0deg); }
+  45% { opacity: 1; transform: translate(calc(var(--dx) * 0.8), var(--dy)) rotate(calc(var(--rot) * 0.5)); }
+  100% { opacity: 0; transform: translate(var(--dx), 140px) rotate(var(--rot)); }
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;
@@ -163,6 +244,26 @@
 .actions button:focus-visible {
   outline: 3px solid var(--tb-focus);
   outline-offset: 2px;
+}
+
+/* Windows High Contrast: `all: unset` dropped the button borders, so draw them
+   with system colors; the timer bar needs a visible fill too. */
+@media (forced-colors: active) {
+  .bubble {
+    border-color: CanvasText;
+  }
+  .actions button {
+    border: 1px solid ButtonText;
+  }
+  .actions button.primary {
+    border-width: 2px;
+  }
+  .timer-bar {
+    border: 1px solid CanvasText;
+  }
+  .timer-fill {
+    background: Highlight;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

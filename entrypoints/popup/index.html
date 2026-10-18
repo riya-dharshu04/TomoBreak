@@ -19,9 +19,19 @@
         <input id="enabled" type="checkbox" role="switch" />
       </label>
 
+      <p id="mood" class="mood"></p>
       <p id="status" class="status" aria-live="polite"></p>
 
-      <button id="open-settings" class="secondary" type="button">Characters &amp; settings</button>
+      <section id="pomodoro" class="pomodoro" aria-labelledby="pomodoro-title" hidden>
+        <div class="pomodoro-head">
+          <h2 id="pomodoro-title">🍅 Pomodoro</h2>
+          <span id="pomodoro-phase" class="pomodoro-phase"></span>
+        </div>
+        <p id="pomodoro-time" class="pomodoro-time" aria-live="off">25:00</p>
+        <button id="pomodoro-toggle" type="button" class="primary">Start focus</button>
+      </section>
+
+      <button id="open-settings" class="secondary" type="button">Characters, stats &amp; settings</button>
 
       <!-- Hidden debug panel: click the version label 5 times to reveal. -->
       <section id="debug" class="debug" hidden aria-label="Debug">
@@ -29,11 +39,41 @@
           <span>Fast intervals (1 min)</span>
           <input id="fast" type="checkbox" />
         </label>
-        <button id="visit-now" type="button">Visit now</button>
+        <label class="debug-field">
+          <span>Scenario</span>
+          <select id="scenario">
+            <optgroup label="Reminders">
+              <option value="mode:hydration">Hydration</option>
+              <option value="mode:eye">Eye break</option>
+              <option value="mode:posture">Posture</option>
+              <option value="mode:stretch">Stretch</option>
+              <option value="mode:entertainment">Entertainment</option>
+              <option value="merged">Merged (water + stretch)</option>
+            </optgroup>
+            <optgroup label="Pomodoro">
+              <option value="pomodoroBreak">Break with bundled reminders</option>
+              <option value="pomodoroEnd">Break over</option>
+            </optgroup>
+            <optgroup label="Bond">
+              <option value="summary">Weekly summary</option>
+              <option value="unlock">Unlock celebration</option>
+            </optgroup>
+            <optgroup label="Reactions">
+              <option value="reaction:lateNight">Late night</option>
+              <option value="reaction:longSession">Long session</option>
+              <option value="reaction:tabOverload">Tab overload</option>
+              <option value="reaction:codingWin">Coding win</option>
+              <option value="reaction:codingFail">Coding fail</option>
+              <option value="reaction:socialNudge">Social nudge</option>
+            </optgroup>
+          </select>
+        </label>
+        <button id="visit-now" type="button" class="primary">Visit now</button>
         <p id="debug-msg" class="debug-msg" aria-live="polite"></p>
       </section>
 
       <footer class="footer">
+        <span id="shortcut" class="shortcut"></span>
         <span id="version" class="version"></span>
       </footer>
     </main>

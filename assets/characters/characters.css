@@ -126,6 +126,85 @@
   100% { transform: translateY(0) rotateY(360deg); }
 }
 
+/* ---- mood: idle expression follows affection ----------------------------- */
+
+.tb-char[data-mood='thrilled']:is([data-state='idle'], [data-state='walk']) .tb-eyes-open { display: none; }
+.tb-char[data-mood='thrilled']:is([data-state='idle'], [data-state='walk']) .tb-eyes-happy { display: inline; }
+.tb-char[data-mood='worried'][data-state='idle'] .tb-eyes-open { display: none; }
+.tb-char[data-mood='worried'][data-state='idle'] .tb-eyes-sad { display: inline; }
+
+/* ---- outfit (7-day unlock) ------------------------------------------------ */
+
+.tb-hat { display: none; }
+.tb-char[data-outfit] .tb-hat { display: inline; }
+
+/* ---- second dance (3-day unlock): a side-step wiggle with a spin --------- */
+
+.tb-char:not(.tb-custom)[data-dance='2'][data-state='happy'] { animation: tb-dance2 1.4s ease-in-out infinite; }
+
+@keyframes tb-dance2 {
+  0%, 100% { transform: translateX(0) rotate(0deg); }
+  20%      { transform: translateX(-12px) translateY(-10px) rotate(-12deg); }
+  40%      { transform: translateX(0) rotate(0deg); }
+  60%      { transform: translateX(12px) translateY(-10px) rotate(12deg); }
+  80%      { transform: translateY(-16px) rotateY(180deg); }
+}
+
+/* ---- poses ----------------------------------------------------------------
+ * Layered on a state for posture, eye rest and stretches. Pose rules come
+ * after the state rules and set `animation` themselves, because a running
+ * animation would otherwise override a static transform.
+ */
+
+/* Posture: hunch forward, then straighten up tall. */
+.tb-char[data-pose='slouch'] .tb-figure { animation: none; transform: translateY(5px) scaleY(0.92); }
+.tb-char[data-pose='slouch'] .tb-head { animation: none; transform: translateY(7px) rotate(9deg); }
+.tb-char[data-pose='straight'] .tb-figure { animation: tb-straighten 0.7s ease-out 1 both; }
+.tb-char[data-pose='straight'] .tb-head { animation: none; transform: none; }
+
+/* Eye rest: eyes closed, calm smile, slow breathing. */
+.tb-char[data-pose='rest-eyes'] :is(.tb-eyes-open, .tb-eyes-happy, .tb-eyes-sad, .tb-eyes-wide, .tb-mouth-open, .tb-mouth-o, .tb-zzz) { display: none; }
+.tb-char[data-pose='rest-eyes'] :is(.tb-eyes-closed, .tb-mouth-smile) { display: inline; }
+.tb-char[data-pose='rest-eyes'] .tb-figure { animation: tb-breathe 4s ease-in-out infinite; }
+.tb-char[data-pose='rest-eyes'] .tb-head { animation: none; }
+
+/* Stretches. Arms rotate around the shoulder: + swings the left arm out. */
+.tb-char[data-pose='neck'] .tb-head { animation: tb-neck-roll 3s ease-in-out infinite; }
+.tb-char[data-pose='shrug'] :is(.tb-arm-l, .tb-arm-r) { animation: tb-shrug 1.6s ease-in-out infinite; }
+.tb-char[data-pose='shrug'] .tb-head { animation: tb-shrug-head 1.6s ease-in-out infinite; }
+.tb-char[data-pose='wrist'] .tb-arm-l { animation: tb-wrist-l 1.2s ease-in-out infinite alternate; }
+.tb-char[data-pose='wrist'] .tb-arm-r { animation: tb-wrist-r 1.2s ease-in-out infinite alternate; }
+.tb-char[data-pose='twist'] .tb-figure { animation: tb-twist 2.4s ease-in-out infinite; }
+.tb-char[data-pose='reach'] .tb-arm-l { animation: none; transform: rotate(165deg); }
+.tb-char[data-pose='reach'] .tb-arm-r { animation: none; transform: rotate(-165deg); }
+.tb-char[data-pose='reach'] .tb-figure { animation: tb-reach 2s ease-in-out infinite; }
+.tb-char[data-pose='chest'] .tb-arm-l { animation: none; transform: rotate(-28deg) translateX(3px); }
+.tb-char[data-pose='chest'] .tb-arm-r { animation: none; transform: rotate(28deg) translateX(-3px); }
+.tb-char[data-pose='chest'] .tb-head { animation: none; transform: translateY(-2px) rotate(-4deg); }
+.tb-char[data-pose='side'] .tb-figure { animation: tb-side-bend 3s ease-in-out infinite; }
+.tb-char[data-pose='side'] .tb-arm-r { animation: none; transform: rotate(-160deg); }
+.tb-char[data-pose='ankle'] .tb-leg-l { animation: tb-ankle 1.1s ease-in-out infinite alternate; }
+
+@keyframes tb-straighten {
+  0%   { transform: translateY(5px) scaleY(0.92); }
+  60%  { transform: translateY(-3px) scaleY(1.04); }
+  100% { transform: none; }
+}
+@keyframes tb-neck-roll {
+  0%, 100% { transform: rotate(-12deg) translateX(-2px); }
+  25%      { transform: rotate(0deg) translateY(4px); }
+  50%      { transform: rotate(12deg) translateX(2px); }
+  75%      { transform: rotate(0deg) translateY(-2px); }
+}
+@keyframes tb-shrug { 0%, 100% { transform: translateY(0); } 40%, 60% { transform: translateY(-7px); } }
+@keyframes tb-shrug-head { 0%, 100% { transform: translateY(0); } 40%, 60% { transform: translateY(3px); } }
+@keyframes tb-wrist-l { from { transform: rotate(70deg); } to { transform: rotate(90deg); } }
+@keyframes tb-wrist-r { from { transform: rotate(-70deg); } to { transform: rotate(-90deg); } }
+@keyframes tb-twist { 0%, 100% { transform: scaleX(1); } 25% { transform: scaleX(0.86) rotate(-3deg); } 75% { transform: scaleX(0.86) rotate(3deg); } }
+@keyframes tb-reach { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(1.05); } }
+@keyframes tb-side-bend { 0%, 100% { transform: rotate(0deg); } 30%, 45% { transform: rotate(-10deg); } 70%, 85% { transform: rotate(10deg); } }
+@keyframes tb-ankle { from { transform: rotate(-14deg); } to { transform: rotate(14deg); } }
+
 /* ---- uploaded characters ------------------------------------------------
  * One <img> whose src follows the state. When a state has no image of its
  * own (no [data-own]), CSS effects stand in: wobble for walk, bounce + small
@@ -156,6 +235,23 @@
 }
 .tb-custom[data-state='sleepy'] img { filter: brightness(0.85); transform: rotate(6deg); }
 .tb-custom[data-state='surprised'] img { animation: tb-hop 0.4s ease-out 1; }
+
+/* Unlocks, mood and poses for uploaded characters. */
+.tb-custom[data-dance='2']:not([data-own])[data-state='happy'] img { animation: tb-dance2 1.4s ease-in-out infinite; }
+.tb-custom[data-mood='worried'][data-state='idle'] img { filter: saturate(0.8); }
+.tb-custom[data-outfit]::before {
+  content: '🎉';
+  position: absolute;
+  top: -6%;
+  left: 50%;
+  z-index: 1;
+  font-size: 26px;
+  transform: translateX(-50%) rotate(-14deg);
+}
+.tb-custom[data-pose] img { animation: tb-c-wobble 1.4s ease-in-out infinite alternate; }
+.tb-custom[data-pose='slouch'] img { animation: none; transform: translateY(5px) scaleY(0.92) rotate(4deg); }
+.tb-custom[data-pose='straight'] img { animation: tb-straighten 0.7s ease-out 1 both; }
+.tb-custom[data-pose='rest-eyes'] img { animation: tb-breathe 4s ease-in-out infinite; filter: brightness(0.92); }
 
 @keyframes tb-c-wobble { from { transform: rotate(-5deg) translateY(0); } to { transform: rotate(5deg) translateY(-3px); } }
 @keyframes tb-c-happy {
