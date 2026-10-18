@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="manifest.default_title" content="TomoBreak" />
+    <title>TomoBreak</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="popup">
+      <header class="header">
+        <h1>TomoBreak</h1>
+        <p class="tagline">A companion that cares about you and never breaks your flow.</p>
+      </header>
+
+      <label class="row switch">
+        <span>Buddy visits</span>
+        <input id="enabled" type="checkbox" role="switch" />
+      </label>
+
+      <p id="status" class="status" aria-live="polite"></p>
+
+      <!-- Hidden debug panel: click the version label 5 times to reveal. -->
+      <section id="debug" class="debug" hidden aria-label="Debug">
+        <label class="row">
+          <span>Fast intervals (1 min)</span>
+          <input id="fast" type="checkbox" />
+        </label>
+        <button id="visit-now" type="button">Visit now</button>
+        <p id="debug-msg" class="debug-msg" aria-live="polite"></p>
+      </section>
+
+      <footer class="footer">
+        <span id="version" class="version"></span>
+      </footer>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

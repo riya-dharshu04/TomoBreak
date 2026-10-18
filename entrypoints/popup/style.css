@@ -1,0 +1,148 @@
+:root {
+  --bg: #fbfaff;
+  --fg: #2b2540;
+  --muted: #6d6687;
+  --accent: #6c5ce7;
+  --track: #d9d4ea;
+  --card: #ffffff;
+  --border: #e4dff2;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1c1a28;
+    --fg: #f3f0ff;
+    --muted: #a59fc0;
+    --accent: #8d7ff0;
+    --track: #3d3758;
+    --card: #26223a;
+    --border: #3d3758;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 300px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+
+.popup {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.tagline {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.switch {
+  font-weight: 600;
+}
+
+/* Native checkbox restyled as a switch; stays keyboard accessible. */
+input[type='checkbox'][role='switch'] {
+  appearance: none;
+  position: relative;
+  width: 40px;
+  height: 22px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--track);
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+input[type='checkbox'][role='switch']::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+
+input[type='checkbox'][role='switch']:checked {
+  background: var(--accent);
+}
+
+input[type='checkbox'][role='switch']:checked::after {
+  transform: translateX(18px);
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 3px solid #ff7aa2;
+  outline-offset: 2px;
+}
+
+.status {
+  margin: 0;
+  color: var(--muted);
+}
+
+.debug {
+  display: grid;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.debug[hidden] {
+  display: none;
+}
+
+.debug button {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.debug-msg {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.footer {
+  text-align: right;
+}
+
+.version {
+  color: var(--muted);
+  font-size: 11px;
+  cursor: default;
+  user-select: none;
+}

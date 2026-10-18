@@ -1,0 +1,147 @@
+/* Overlay layout + chat bubble. Lives inside a closed shadow root. */
+
+:host {
+  all: initial;
+}
+
+.layer {
+  --tb-char-h: clamp(84px, 20vh, 140px);
+  --tb-bubble-bg: #ffffff;
+  --tb-bubble-fg: #2b2540;
+  --tb-bubble-border: #e4dff2;
+  --tb-btn-bg: #f1edfb;
+  --tb-btn-fg: #2b2540;
+  --tb-btn-primary-bg: #6c5ce7;
+  --tb-btn-primary-fg: #ffffff;
+  --tb-focus: #ff7aa2;
+  --tb-shadow: 0 8px 28px rgba(30, 20, 60, 0.18);
+
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  font: 15px/1.4 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--tb-bubble-fg);
+}
+
+@media (prefers-color-scheme: dark) {
+  .layer {
+    --tb-bubble-bg: #26223a;
+    --tb-bubble-fg: #f3f0ff;
+    --tb-bubble-border: #3d3758;
+    --tb-btn-bg: #3a3456;
+    --tb-btn-fg: #f3f0ff;
+    --tb-btn-primary-bg: #8d7ff0;
+    --tb-btn-primary-fg: #15121f;
+    --tb-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  }
+}
+
+/* Positioned by translateX from the left edge (set from TypeScript). */
+.buddy {
+  position: absolute;
+  left: 0;
+  bottom: 12vh;
+  width: calc(var(--tb-char-h) * 0.75);
+  height: var(--tb-char-h);
+  will-change: transform, opacity;
+}
+
+.character {
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+  perspective: 400px;
+}
+
+.bubble {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(300px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border: 1px solid var(--tb-bubble-border);
+  border-radius: 16px;
+  background: var(--tb-bubble-bg);
+  color: var(--tb-bubble-fg);
+  box-shadow: var(--tb-shadow);
+  opacity: 0;
+  transform: translateX(-50%) translateY(6px) scale(0.92);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  pointer-events: none;
+}
+
+.bubble.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* Little tail pointing at the character. */
+.bubble::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  background: var(--tb-bubble-bg);
+  border-right: 1px solid var(--tb-bubble-border);
+  border-bottom: 1px solid var(--tb-bubble-border);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.text {
+  margin: 0;
+  font-weight: 500;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.actions:empty {
+  display: none;
+}
+
+.actions button {
+  all: unset;
+  box-sizing: border-box;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--tb-btn-bg);
+  color: var(--tb-btn-fg);
+  font: 600 13px/1.2 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  cursor: pointer;
+  transition: transform 0.1s ease, filter 0.1s ease;
+}
+
+.actions button:hover {
+  filter: brightness(0.95);
+}
+
+.actions button:active {
+  transform: scale(0.96);
+}
+
+.actions button.primary {
+  background: var(--tb-btn-primary-bg);
+  color: var(--tb-btn-primary-fg);
+}
+
+.actions button:focus-visible {
+  outline: 3px solid var(--tb-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble,
+  .actions button {
+    transition: opacity 0.2s ease;
+  }
+}
