@@ -98,6 +98,32 @@
   font-weight: 500;
 }
 
+/* Peek: the buddy is partly off the right edge, so anchor the bubble to the
+   visible part and point the tail at the character from the right. */
+.is-peek .bubble {
+  left: auto;
+  right: calc(100% * (1 - 0.6) + 8px);
+  transform: translateY(6px) scale(0.92);
+  transform-origin: 100% 100%;
+}
+.is-peek .bubble.is-visible {
+  transform: none;
+}
+.is-peek .bubble::after {
+  left: auto;
+  right: 14px;
+  transform: rotate(45deg);
+}
+
+/* Live preview on the options page: fill the stage, not the viewport. */
+:host([data-embedded]) .layer {
+  --tb-char-h: 120px;
+  position: absolute;
+}
+:host([data-embedded]) .buddy {
+  bottom: 18px;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

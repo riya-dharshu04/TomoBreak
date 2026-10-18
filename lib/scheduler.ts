@@ -1,39 +1,96 @@
 /**
- * Reminder scheduler. Runs in the service worker.
+ * Reminder scheduler state. Runs in the service worker.
  *
  * Chrome may stop the service worker at any moment, so nothing here keeps
  * state in memory: due times live in storage (`schedule`) and wake-ups are
- * chrome.alarms. Each scheduled mode owns one alarm named `mode:<id>`.
+ * chrome.alarms.
+ *
+ * Life of a reminder:
+ *   1. `mode:<id>` alarm fires at nextDueAt → the mode becomes *pending*.
+ *   2. lib/delivery.ts waits for a natural pause (re-checked by the periodic
+ *      `focus:check` alarm and by activity) and shows one visit for every
+ *      pending mode.
+ *   3. The answer (or a timeout) finishes the visit and schedules each mode
+ *      again.
  */
-import { sendToTab } from '@/lib/messaging';
-import { effectiveIntervalMin, MODE_IDS, SCHEDULED_MODES, SNOOZE_MIN } from '@/lib/modes';
+import { MODE_IDS, SCHEDULED_MODES, SNOOZE_MIN, effectiveIntervalMin } from '@/lib/modes';
+import { clearNotification } from '@/lib/notify';
 import { recordAnswer } from '@/lib/stats';
 import { getItem, updateItem } from '@/lib/storage';
-import type { ActiveVisit, Answer, MessageResponses, ModeId, Visit } from '@/utils/types';
+import type { ActiveVisit, Answer, ModeId, ScheduleState, VisitChannel } from '@/utils/types';
 
 const MINUTE = 60_000;
 const MODE_ALARM_PREFIX = 'mode:';
-const VISIT_TIMEOUT_ALARM = 'visit:timeout';
-/** When a reminder can't be shown right now, try again after this long. */
-const RETRY_MIN = 1;
+export const VISIT_TIMEOUT_ALARM = 'visit:timeout';
+export const CHECK_ALARM = 'focus:check';
+/** How often pending reminders re-check for a pause (Chrome's minimum is 30 s). */
+const CHECK_PERIOD_MIN = 0.5;
 /**
- * A visit takes at most ~75 s (walk in, 60 s bubble, reaction, walk out).
- * If no answer arrived by then the tab was closed or navigated: the visit is lost.
+ * An overlay visit takes at most ~75 s (walk in, 60 s bubble, reaction, walk
+ * out). If no answer arrived by then the tab was closed or navigated.
  */
 const VISIT_TIMEOUT_MIN = 2;
+/** Notifications get the same 60 s as the on-page bubble before counting as ignored. */
+const NOTIFICATION_TIMEOUT_MIN = 1;
 
 function modeAlarmName(mode: ModeId): string {
   return `${MODE_ALARM_PREFIX}${mode}`;
 }
 
-function modeFromAlarm(name: string): ModeId | null {
+export function modeFromAlarm(name: string): ModeId | null {
   if (!name.startsWith(MODE_ALARM_PREFIX)) return null;
   const id = name.slice(MODE_ALARM_PREFIX.length);
   return MODE_IDS.find((mode) => mode === id) ?? null;
 }
 
+export interface PendingSet {
+  modes: ModeId[];
+  /** Earliest pendingSince among them; drives the 10-minute maximum delay. */
+  oldest: number;
+}
+
+export function pendingModes(schedule: ScheduleState): PendingSet | null {
+  const modes: ModeId[] = [];
+  let oldest = Infinity;
+  for (const mode of MODE_IDS) {
+    const since = schedule.modes[mode]?.pendingSince;
+    if (since === undefined || since === null) continue;
+    modes.push(mode);
+    oldest = Math.min(oldest, since);
+  }
+  return modes.length > 0 ? { modes, oldest } : null;
+}
+
 function isStale(visit: ActiveVisit, now: number): boolean {
   return now - visit.shownAt > VISIT_TIMEOUT_MIN * MINUTE;
+}
+
+/**
+ * Make chrome.alarms match the stored schedule: one alarm per mode that is
+ * not yet due, and the periodic check alarm while anything is pending.
+ */
+async function syncAlarms(schedule: ScheduleState): Promise<void> {
+  const now = Date.now();
+  for (const mode of MODE_IDS) {
+    const name = modeAlarmName(mode);
+    const entry = schedule.modes[mode];
+    if (!entry || entry.pendingSince !== null) {
+      await chrome.alarms.clear(name);
+      continue;
+    }
+    const alarm = await chrome.alarms.get(name);
+    if (!alarm || Math.abs(alarm.scheduledTime - entry.nextDueAt) > 1000) {
+      // A due time in the past (e.g. after a browser restart) fires right away.
+      await chrome.alarms.create(name, { when: Math.max(entry.nextDueAt, now + 1000) });
+    }
+  }
+  if (pendingModes(schedule)) {
+    if (!(await chrome.alarms.get(CHECK_ALARM))) {
+      await chrome.alarms.create(CHECK_ALARM, { delayInMinutes: CHECK_PERIOD_MIN, periodInMinutes: CHECK_PERIOD_MIN });
+    }
+  } else {
+    await chrome.alarms.clear(CHECK_ALARM);
+  }
 }
 
 /**
@@ -56,84 +113,82 @@ export async function syncSchedules(): Promise<void> {
       const interval = effectiveIntervalMin(settings, mode);
       const existing = modes[mode];
       if (!existing || existing.intervalMin !== interval) {
-        modes[mode] = { nextDueAt: now + interval * MINUTE, intervalMin: interval };
+        modes[mode] = { nextDueAt: now + interval * MINUTE, intervalMin: interval, pendingSince: null };
       }
     }
     const visit = current.activeVisit;
     const keepVisit = settings.enabled && visit !== null && !isStale(visit, now);
-    return { modes, activeVisit: keepVisit ? visit : null };
+    return { ...current, modes, activeVisit: keepVisit ? visit : null };
   });
 
   if (!schedule.activeVisit) await chrome.alarms.clear(VISIT_TIMEOUT_ALARM);
-
-  for (const mode of MODE_IDS) {
-    const name = modeAlarmName(mode);
-    const entry = schedule.modes[mode];
-    if (!entry) {
-      await chrome.alarms.clear(name);
-      continue;
-    }
-    const alarm = await chrome.alarms.get(name);
-    if (!alarm || Math.abs(alarm.scheduledTime - entry.nextDueAt) > 1000) {
-      // A due time in the past (e.g. after a browser restart) fires right away.
-      await chrome.alarms.create(name, { when: Math.max(entry.nextDueAt, now + 1000) });
-    }
-  }
+  await syncAlarms(schedule);
 }
 
-async function retryLater(mode: ModeId): Promise<void> {
-  await chrome.alarms.create(modeAlarmName(mode), { delayInMinutes: RETRY_MIN });
+/** A mode alarm fired: the reminder now waits for a natural pause. */
+export async function markDue(mode: ModeId): Promise<void> {
+  const now = Date.now();
+  const schedule = await updateItem('schedule', (s) => {
+    const entry = s.modes[mode];
+    if (!entry || entry.pendingSince !== null) return s;
+    // "Due" counts from now, not nextDueAt: after a browser restart an old
+    // due time would otherwise skip the pause and force a visit at once.
+    return { ...s, modes: { ...s.modes, [mode]: { ...entry, pendingSince: now } } };
+  });
+  await syncAlarms(schedule);
 }
 
-export async function handleAlarm(alarm: chrome.alarms.Alarm): Promise<void> {
-  if (alarm.name === VISIT_TIMEOUT_ALARM) {
-    await handleVisitTimeout();
-    return;
-  }
-  const mode = modeFromAlarm(alarm.name);
-  if (!mode) return;
-
-  const [settings, schedule] = await Promise.all([getItem('settings'), getItem('schedule')]);
-  if (!settings.enabled || !schedule.modes[mode]) return;
-
-  // One visit at a time. The timeout alarm guarantees activeVisit is cleared.
-  if (schedule.activeVisit) {
-    await retryLater(mode);
-    return;
-  }
-  const result = await showVisit([mode]);
-  if (!result.ok) await retryLater(mode);
+/** Push pending modes to a later time (e.g. the end of quiet hours). */
+export async function deferModes(modes: readonly ModeId[], until: number): Promise<void> {
+  const schedule = await updateItem('schedule', (s) => {
+    const next = { ...s.modes };
+    for (const mode of modes) {
+      const entry = next[mode];
+      if (entry) next[mode] = { ...entry, nextDueAt: until, pendingSince: null };
+    }
+    return { ...s, modes: next };
+  });
+  await syncAlarms(schedule);
 }
 
 /**
- * Ask the active tab of the focused window to play a visit.
- * Fails when that tab cannot run content scripts (chrome:// pages etc.).
+ * Atomically take the single visit slot. Returns false if another visit got
+ * there first (two triggers can race inside one service worker).
  */
-export async function showVisit(modes: ModeId[]): Promise<MessageResponses['debug/visitNow']> {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (tab?.id === undefined) return { ok: false, reason: 'No active tab.' };
-  const tabId = tab.id;
-
-  const characters = await getItem('characters');
-  const visit: Visit = { id: crypto.randomUUID(), kind: 'reminder', modes, characterId: characters.activeId };
-
-  // Claim the slot before sending so a second alarm firing meanwhile waits.
-  await updateItem('schedule', (s) => ({
-    ...s,
-    activeVisit: { id: visit.id, tabId, modes, shownAt: Date.now() },
-  }));
-  try {
-    await sendToTab(tabId, { type: 'visit/show', visit });
-  } catch {
-    await updateItem('schedule', (s) => ({ ...s, activeVisit: null }));
-    return { ok: false, reason: 'This page cannot show the buddy. Try a normal website.' };
-  }
-  await chrome.alarms.create(VISIT_TIMEOUT_ALARM, { delayInMinutes: VISIT_TIMEOUT_MIN });
-  return { ok: true };
+export async function claimVisit(visit: ActiveVisit): Promise<boolean> {
+  const schedule = await updateItem('schedule', (s) => (s.activeVisit ? s : { ...s, activeVisit: visit }));
+  return schedule.activeVisit?.id === visit.id;
 }
 
-/** Clear the active visit and schedule each of its modes again. */
-async function finishVisit(modes: ModeId[], delayOverrideMin?: number): Promise<void> {
+/** Give the slot back when a visit could not be shown after all. */
+export async function releaseVisit(visitId: string): Promise<void> {
+  await updateItem('schedule', (s) => (s.activeVisit?.id === visitId ? { ...s, activeVisit: null } : s));
+}
+
+export async function startVisitTimeout(channel: VisitChannel): Promise<void> {
+  const delayInMinutes = channel === 'notification' ? NOTIFICATION_TIMEOUT_MIN : VISIT_TIMEOUT_MIN;
+  await chrome.alarms.create(VISIT_TIMEOUT_ALARM, { delayInMinutes });
+}
+
+/**
+ * Atomically end the visit with this id and return it, or null if it already
+ * ended. Two events can answer the same visit (a notification button click
+ * is followed by its close event); only the first one gets the visit.
+ * Setting lastVisitEndAt in the same write keeps tryDeliver from starting a
+ * new visit before the modes are rescheduled.
+ */
+async function takeVisit(visitId: string): Promise<ActiveVisit | null> {
+  const taken: { visit: ActiveVisit | null } = { visit: null };
+  await updateItem('schedule', (s) => {
+    if (s.activeVisit?.id !== visitId) return s;
+    taken.visit = s.activeVisit;
+    return { ...s, activeVisit: null, lastVisitEndAt: Date.now() };
+  });
+  return taken.visit;
+}
+
+/** Schedule each mode of a finished visit again. */
+async function rescheduleModes(modes: readonly ModeId[], delayOverrideMin?: number): Promise<void> {
   const settings = await getItem('settings');
   const now = Date.now();
   const schedule = await updateItem('schedule', (s) => {
@@ -142,28 +197,33 @@ async function finishVisit(modes: ModeId[], delayOverrideMin?: number): Promise<
       const entry = next[mode];
       if (!entry) continue; // e.g. a debug visit for a mode that is switched off
       const delay = delayOverrideMin ?? effectiveIntervalMin(settings, mode);
-      next[mode] = { ...entry, nextDueAt: now + delay * MINUTE };
+      next[mode] = { ...entry, nextDueAt: now + delay * MINUTE, pendingSince: null };
     }
-    return { modes: next, activeVisit: null };
+    return { ...s, modes: next };
   });
   await chrome.alarms.clear(VISIT_TIMEOUT_ALARM);
-  for (const mode of modes) {
-    const entry = schedule.modes[mode];
-    if (entry) await chrome.alarms.create(modeAlarmName(mode), { when: entry.nextDueAt });
-  }
+  await syncAlarms(schedule);
 }
 
 export async function handleAnswer(visitId: string, answer: Answer): Promise<void> {
-  const { activeVisit } = await getItem('schedule');
-  if (!activeVisit || activeVisit.id !== visitId) return; // stale or duplicate
-  for (const mode of activeVisit.modes) await recordAnswer(mode, answer);
-  await finishVisit(activeVisit.modes, answer === 'snooze' ? SNOOZE_MIN : undefined);
+  const visit = await takeVisit(visitId);
+  if (!visit) return; // stale or duplicate
+  for (const mode of visit.modes) await recordAnswer(mode, answer);
+  await rescheduleModes(visit.modes, answer === 'snooze' ? SNOOZE_MIN : undefined);
+  if (visit.channel === 'notification') await clearNotification(visitId);
 }
 
-/** The visit vanished without an answer (tab closed, page navigated). */
-async function handleVisitTimeout(): Promise<void> {
+/** No answer arrived in time. */
+export async function handleVisitTimeout(): Promise<void> {
   const { activeVisit } = await getItem('schedule');
   if (!activeVisit) return;
-  // Not the user's choice, so no stats; just come back a bit later.
-  await finishVisit(activeVisit.modes, SNOOZE_MIN);
+  if (activeVisit.channel === 'notification') {
+    // Left unanswered for a minute: the same as an ignored bubble.
+    await handleAnswer(activeVisit.id, 'ignored');
+    return;
+  }
+  // The tab was closed or navigated mid-visit. Not the user's choice, so no
+  // stats; just come back a bit later.
+  const visit = await takeVisit(activeVisit.id);
+  if (visit) await rescheduleModes(visit.modes, SNOOZE_MIN);
 }

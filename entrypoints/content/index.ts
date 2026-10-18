@@ -1,11 +1,17 @@
 /**
- * Content script. Stays dormant until the service worker asks for a visit:
- * it only registers two listeners, and builds DOM only while a visit plays.
+ * Content script. Stays light until the service worker asks for a visit:
+ * it registers a few passive listeners for throttled activity reports, and
+ * builds DOM only while a visit plays.
+ *
+ * It deliberately does not subscribe to chrome.storage changes: every tab
+ * would then receive each change, including multi-MB character uploads.
+ * The service worker sends `visit/hide` instead when TomoBreak is turned off.
  */
 import { defineContentScript } from 'wxt/utils/define-content-script';
+import { resolveCharacter } from '@/lib/characters';
 import { onMessages, sendToBackground } from '@/lib/messaging';
+import { ActivityTracker } from '@/lib/overlay/activity';
 import { Overlay } from '@/lib/overlay/overlay';
-import { onItemChanged } from '@/lib/storage';
 import type { TabMessage } from '@/utils/types';
 
 export default defineContentScript({
@@ -19,10 +25,22 @@ export default defineContentScript({
       overlay = null;
     };
 
+    const activity = new ActivityTracker((typing) => {
+      if (ctx.isInvalid) return;
+      sendToBackground({ type: 'activity/ping', typing }).catch(() => {
+        // Service worker restarting or extension reloaded; the next ping retries.
+      });
+    });
+    activity.start();
+
     onMessages<TabMessage>({
-      'visit/show': ({ visit }) => {
+      'visit/show': async ({ visit }) => {
+        // Last-moment checks only the page itself can make.
+        if (document.fullscreenElement) return { ok: false, reason: 'fullscreen' };
+        if (activity.isTyping()) return { ok: false, reason: 'typing' };
         hide();
-        const current = new Overlay(visit, {
+        const character = await resolveCharacter(visit.characterId);
+        const current = new Overlay(visit, character, {
           onAnswer: (answer) => {
             sendToBackground({ type: 'visit/answer', visitId: visit.id, answer }).catch(() => {
               // Extension reloaded mid-visit; the SW's timeout alarm cleans up.
@@ -42,14 +60,9 @@ export default defineContentScript({
       },
     });
 
-    // Turning TomoBreak off in the popup hides the buddy at once, everywhere.
-    const stopWatching = onItemChanged('settings', (settings) => {
-      if (!settings.enabled) hide();
-    });
-
     // Extension reloaded/updated: this script is orphaned, so clean up.
     ctx.onInvalidated(() => {
-      stopWatching();
+      activity.stop();
       hide();
     });
   },

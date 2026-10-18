@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="manifest.open_in_tab" content="true" />
+    <title>TomoBreak settings</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="page-header">
+      <div class="wrap">
+        <h1>TomoBreak</h1>
+        <p class="tagline">A companion that cares about you and never breaks your flow.</p>
+        <p id="welcome" class="welcome" hidden>
+          Welcome! Set up your buddy in three quick steps, then press <strong>Save</strong>.
+        </p>
+      </div>
+    </header>
+
+    <main class="wrap layout">
+      <form id="setup" class="steps" novalidate>
+        <!-- Step 1 -->
+        <section class="step" aria-labelledby="step1-title">
+          <h2 id="step1-title"><span class="step-num" aria-hidden="true">1</span> Choose a character</h2>
+          <div id="character-grid" class="char-grid" role="radiogroup" aria-labelledby="step1-title"></div>
+
+          <details id="upload-panel" class="upload">
+            <summary>Upload your own character</summary>
+            <p class="note">
+              Only upload images you have the right to use. Uploaded characters stay on your device.
+            </p>
+            <label class="field">
+              <span>Name</span>
+              <input id="upload-name" type="text" maxlength="24" value="My buddy" autocomplete="off" />
+            </label>
+            <div id="upload-slots" class="upload-slots"></div>
+            <p class="hint">
+              PNG, GIF or WebP, up to 2 MB each. One image is enough: missing states get bounce, droop and
+              wobble effects.
+            </p>
+            <p id="upload-error" class="error" role="alert"></p>
+            <button id="upload-save" type="button" class="primary" disabled>Save character</button>
+          </details>
+        </section>
+
+        <!-- Step 2 -->
+        <section class="step" aria-labelledby="step2-title">
+          <h2 id="step2-title"><span class="step-num" aria-hidden="true">2</span> Choose your modes</h2>
+          <div id="mode-list" class="mode-list"></div>
+        </section>
+
+        <!-- Step 3 -->
+        <section class="step" aria-labelledby="step3-title">
+          <h2 id="step3-title"><span class="step-num" aria-hidden="true">3</span> How often?</h2>
+          <div id="interval-list" class="interval-list"></div>
+        </section>
+
+        <!-- Focus-aware timing -->
+        <section class="step" aria-labelledby="focus-title">
+          <h2 id="focus-title">Never break my flow</h2>
+          <p class="hint">
+            Reminders wait for a natural pause: when you stop typing, switch tabs or come back to your desk.
+            Your buddy never shows while you type, in fullscreen, or during a call.
+          </p>
+
+          <div class="field-row">
+            <label class="check">
+              <input id="quiet-enabled" type="checkbox" />
+              <span>Quiet hours</span>
+            </label>
+            <label class="inline-field">
+              <span>from</span>
+              <input id="quiet-start" type="time" required />
+            </label>
+            <label class="inline-field">
+              <span>to</span>
+              <input id="quiet-end" type="time" required />
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Meeting sites (one per line). The buddy stays away while these play audio.</span>
+            <textarea id="meeting-sites" rows="3" spellcheck="false"></textarea>
+          </label>
+
+          <label class="field">
+            <span>Sites where the buddy never walks in (one per line). You'll get a notification instead.</span>
+            <textarea id="blocked-sites" rows="2" spellcheck="false" placeholder="docs.google.com"></textarea>
+          </label>
+        </section>
+
+        <div class="save-bar">
+          <button id="save" type="submit" class="primary big">Save</button>
+          <p id="save-msg" class="save-msg" aria-live="polite"></p>
+        </div>
+      </form>
+
+      <aside class="preview" aria-labelledby="preview-title">
+        <div class="preview-sticky">
+          <h2 id="preview-title">Live preview</h2>
+          <div id="preview-stage" class="stage">
+            <div class="fake-page" aria-hidden="true">
+              <span class="fake-bar"></span>
+              <span class="fake-line w80"></span>
+              <span class="fake-line w60"></span>
+              <span class="fake-line w70"></span>
+              <span class="fake-line w40"></span>
+            </div>
+          </div>
+          <button id="preview-replay" type="button" class="secondary">Play again</button>
+        </div>
+      </aside>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

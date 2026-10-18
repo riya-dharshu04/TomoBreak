@@ -109,6 +109,21 @@ button:focus-visible {
   color: var(--muted);
 }
 
+.secondary {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondary:hover {
+  border-color: var(--accent);
+}
+
 .debug {
   display: grid;
   gap: 8px;

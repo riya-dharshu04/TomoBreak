@@ -5,23 +5,35 @@
  * can't reach it and page scripts can't poke at it. The host covers the
  * viewport with pointer-events: none; only the character and bubble accept
  * clicks. destroy() removes the host entirely, leaving no trace in the DOM.
+ *
+ * The options page reuses it for the live preview by passing a `container`:
+ * the host then fills that element instead of the viewport.
  */
-import { DEFAULT_CHARACTERS } from '@/assets/characters';
 import characterCss from '@/assets/characters/characters.css?inline';
 import { dialogueFor, pick, type ModeDialogue } from '@/data/dialogue';
-import type { Answer, CharacterState, Visit } from '@/utils/types';
+import type { Answer, CharacterRender, CharacterState, Visit } from '@/utils/types';
+import { CharacterView } from './character-view';
 import overlayCss from './overlay.css?inline';
 
 const HOST_TAG = 'tomobreak-buddy';
 const AUTO_DISMISS_MS = 60_000;
 const WALK_PX_PER_S = 240;
 const FADE_MS = 400;
+/** Share of the character that is visible during a gentle "peek" entrance. */
+const PEEK_VISIBLE = 0.6;
 
 export interface OverlayCallbacks {
   /** Called once, as soon as the user answers (before the reaction plays). */
   onAnswer: (answer: Answer) => void;
   /** Called once, after the host element has been removed. */
   onClosed: () => void;
+}
+
+export interface OverlayOptions {
+  /** Render inside this element instead of over the whole page (preview). */
+  container?: HTMLElement;
+  /** Move keyboard focus to the first button when the bubble opens. Default true. */
+  autoFocus?: boolean;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): HTMLElementTagNameMap[K] {
@@ -31,13 +43,17 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string): 
 }
 
 export class Overlay {
+  private readonly visit: Visit;
   private readonly callbacks: OverlayCallbacks;
+  private readonly container: HTMLElement | null;
+  private readonly autoFocus: boolean;
   private readonly dialogue: ModeDialogue;
   private readonly reducedMotion: boolean;
 
   private readonly host: HTMLElement;
+  private readonly layer: HTMLDivElement;
   private readonly buddy: HTMLDivElement;
-  private readonly character: HTMLDivElement;
+  private readonly character: CharacterView;
   private readonly bubble: HTMLDivElement;
   private readonly text: HTMLParagraphElement;
   private readonly actions: HTMLDivElement;
@@ -48,18 +64,22 @@ export class Overlay {
   private answered = false;
   private destroyed = false;
 
-  constructor(visit: Visit, callbacks: OverlayCallbacks) {
+  constructor(visit: Visit, character: CharacterRender, callbacks: OverlayCallbacks, options: OverlayOptions = {}) {
+    this.visit = visit;
     this.callbacks = callbacks;
-    // Phase 1 visits carry a single mode; merged visits arrive in Phase 4.
+    this.container = options.container ?? null;
+    this.autoFocus = options.autoFocus ?? true;
+    // Merged multi-mode dialogue arrives in Phase 4; until then use the first.
     this.dialogue = dialogueFor(visit.modes[0] ?? 'hydration');
     this.reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     this.host = document.createElement(HOST_TAG);
+    if (this.container) this.host.setAttribute('data-embedded', '');
     // Inline !important beats any page rule that targets our tag.
     for (const [prop, value] of [
-      ['position', 'fixed'],
+      ['position', this.container ? 'absolute' : 'fixed'],
       ['inset', '0'],
-      ['z-index', '2147483647'],
+      ['z-index', this.container ? '1' : '2147483647'],
       ['pointer-events', 'none'],
       ['display', 'block'],
     ] as const) {
@@ -70,8 +90,8 @@ export class Overlay {
     const style = el('style');
     style.textContent = `${overlayCss}\n${characterCss}`;
 
-    const layer = el('div', 'layer');
-    this.buddy = el('div', 'buddy');
+    this.layer = el('div', 'layer');
+    this.buddy = el('div', visit.entrance === 'peek' ? 'buddy is-peek' : 'buddy');
     this.bubble = el('div', 'bubble');
     this.bubble.setAttribute('role', 'dialog');
     this.bubble.setAttribute('aria-label', 'TomoBreak buddy');
@@ -81,17 +101,16 @@ export class Overlay {
     this.actions = el('div', 'actions');
     this.bubble.append(this.text, this.actions);
 
-    this.character = el('div', 'character tb-char');
-    this.character.innerHTML = DEFAULT_CHARACTERS[visit.characterId].svg;
+    this.character = new CharacterView(character, 'character');
 
-    this.buddy.append(this.bubble, this.character);
-    layer.append(this.buddy);
-    root.append(style, layer);
+    this.buddy.append(this.bubble, this.character.element);
+    this.layer.append(this.buddy);
+    root.append(style, this.layer);
   }
 
   /** Run the whole visit. Resolves when the buddy has left (or was destroyed). */
   async play(): Promise<void> {
-    document.documentElement.append(this.host);
+    (this.container ?? document.documentElement).append(this.host);
     await this.enter();
     if (this.destroyed) return;
 
@@ -171,19 +190,35 @@ export class Overlay {
 
   // ---- Movement -----------------------------------------------------------
 
-  /** X offset that puts the buddy in the horizontal centre. */
-  private centerX(): number {
-    return Math.round(window.innerWidth / 2 - this.buddy.offsetWidth / 2);
+  private stageWidth(): number {
+    return this.layer.clientWidth || window.innerWidth;
+  }
+
+  /** X offset where the buddy stops: the centre, or just inside the right edge. */
+  private restX(): number {
+    const width = this.buddy.offsetWidth;
+    if (this.visit.entrance === 'peek') return Math.round(this.stageWidth() - width * PEEK_VISIBLE);
+    return Math.round(this.stageWidth() / 2 - width / 2);
   }
 
   private async enter(): Promise<void> {
-    const target = this.centerX();
+    const target = this.restX();
     this.buddy.style.transform = `translateX(${target}px)`;
     if (this.reducedMotion) {
       await this.animate([{ opacity: 0 }, { opacity: 1 }], FADE_MS);
       return;
     }
-    const start = window.innerWidth + 10;
+    const start = this.stageWidth() + 10;
+    // A peek is a slow, quiet slide rather than a walk.
+    if (this.visit.entrance === 'peek') {
+      this.setState('idle');
+      await this.animate(
+        [{ transform: `translateX(${start}px)` }, { transform: `translateX(${target}px)` }],
+        1200,
+        'ease-out',
+      );
+      return;
+    }
     this.setState('walk');
     await this.animate(
       [{ transform: `translateX(${start}px)` }, { transform: `translateX(${target}px)` }],
@@ -193,12 +228,12 @@ export class Overlay {
   }
 
   private async exit(): Promise<void> {
-    const from = this.centerX();
+    const from = this.restX();
     if (this.reducedMotion) {
       await this.animate([{ opacity: 1 }, { opacity: 0 }], FADE_MS, 'linear', 'forwards');
       return;
     }
-    const to = window.innerWidth + 10;
+    const to = this.stageWidth() + 10;
     this.setState('walk');
     await this.animate(
       [{ transform: `translateX(${from}px)` }, { transform: `translateX(${to}px)` }],
@@ -252,6 +287,7 @@ export class Overlay {
       button.addEventListener('click', () => void this.answer(spec.answer));
       this.actions.append(button);
     }
+    if (!this.autoFocus) return;
     // Move focus to the bubble so it is keyboard usable; restored on destroy.
     this.previousFocus = document.activeElement;
     this.actions.querySelector('button')?.focus({ preventScroll: true });
@@ -260,14 +296,17 @@ export class Overlay {
   /** Escape = Snooze. Only the Escape key is looked at; nothing is recorded. */
   private readonly onKeyDown = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape') return;
-    if (document.activeElement === this.host) event.stopPropagation();
+    const focusInside = document.activeElement === this.host;
+    // In the preview, Escape elsewhere on the options page is not for us.
+    if (this.container && !focusInside) return;
+    if (focusInside) event.stopPropagation();
     void this.answer('snooze');
   };
 
   // ---- Helpers ------------------------------------------------------------
 
   private setState(state: CharacterState): void {
-    this.character.dataset.state = state;
+    this.character.setState(state);
   }
 
   private later(callback: () => void, ms: number): void {
