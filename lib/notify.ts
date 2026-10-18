@@ -25,6 +25,15 @@ function contentFor(visit: Visit): NotificationContent {
       return { title: 'TomoBreak 🍅', message: pick(POMODORO.end), buttons: [POMODORO.endButtons.yes, POMODORO.endButtons.no] };
     case 'reaction':
       return { title: 'TomoBreak', message: 'Your buddy says hi!', buttons: [] };
+    case 'lesson': {
+      const { word } = visit;
+      const message =
+        word.language === 'english'
+          ? `${word.word} (${word.partOfSpeech}): ${word.meaning}\n“${word.example}”`
+          : `${word.word}（${word.reading} · ${word.romaji}）: ${word.meaning}\n${word.example} — ${word.exampleMeaning}`;
+      const { buttons } = dialogueFor('language');
+      return { title: 'TomoBreak 📚 New word', message, buttons: [buttons.yes, buttons.no] };
+    }
     case 'reminder': {
       const { modes } = visit;
       const single = modes.length === 1 ? modes[0] : undefined;

@@ -10,7 +10,8 @@
  *      gap and quiet-hour rules; falls back to a notification right away.
  *   2. While a Pomodoro focus session runs, everything else waits and is
  *      bundled into the break visit.
- *   3. Due reminders, merged into one visit (Entertainment goes on its own):
+ *   3. Due reminders, merged into one visit (jokes and word lessons come on
+ *      their own):
  *      - quiet hours → postponed to their end
  *      - < 5 min since the last visit, idle/locked, or just back → wait
  *      - natural pause (no typing for 20 s, tab switch, navigation, return)
@@ -38,7 +39,9 @@ import {
   recordActivity,
   recordIdleState,
 } from '@/lib/focus';
+import { nextLesson } from '@/lib/lessons';
 import { sendToTab } from '@/lib/messaging';
+import { SOLO_MODES } from '@/lib/modes';
 import { showNotification } from '@/lib/notify';
 import { POMODORO_ALARM, clearPendingPomodoroVisit, handlePomodoroAlarm } from '@/lib/pomodoro';
 import {
@@ -202,26 +205,39 @@ export async function tryDeliver(trigger: FocusTrigger): Promise<void> {
   }
 }
 
-/** Wellness reminders merge into one visit; Entertainment only comes alone. */
+function isWellness(mode: ModeId): boolean {
+  return !SOLO_MODES.includes(mode);
+}
+
+/** Wellness reminders merge into one visit; jokes and lessons come alone. */
 function reminderModes(pending: PendingSet): ModeId[] {
-  const wellness = pending.modes.filter((mode) => mode !== 'entertainment');
-  return wellness.length > 0 ? wellness : pending.modes;
+  const wellness = pending.modes.filter(isWellness);
+  if (wellness.length > 0) return wellness;
+  const [first] = pending.modes;
+  return first ? [first] : [];
+}
+
+/** The visit for these modes. A lesson picks (and uses up) the next word. */
+async function bodyFor(modes: ModeId[]): Promise<VisitBody> {
+  if (modes.length === 1 && modes[0] === 'language') return { kind: 'lesson', word: await nextLesson() };
+  return { kind: 'reminder', modes, pomodoroBreakMin: null };
 }
 
 async function deliverReminders(settings: Settings, pending: PendingSet, paused: boolean, overdue: boolean): Promise<void> {
   if (!paused && !overdue) return;
-  const body: VisitBody = { kind: 'reminder', modes: reminderModes(pending), pomodoroBreakMin: null };
+  const modes = reminderModes(pending);
   const target = await findTarget(settings);
   switch (target.kind) {
     case 'busy':
       return;
     case 'away':
-      if (overdue) await showAsNotification(body);
+      if (overdue) await showAsNotification(await bodyFor(modes));
       return;
     case 'notify':
-      await showAsNotification(body);
+      await showAsNotification(await bodyFor(modes));
       return;
     case 'page': {
+      const body = await bodyFor(modes);
       // Forced by the time limit rather than a pause: peek in gently.
       const result = await showOnPage(target.tabId, body, paused ? 'walk' : 'peek');
       // Unreachable = no content script yet (tab opened before install, page
@@ -239,7 +255,7 @@ async function deliverPomodoro(settings: Settings, which: 'break' | 'end', pendi
       ? {
           kind: 'reminder',
           // Everything held back during focus, delivered with the break.
-          modes: pending ? pending.modes.filter((mode) => mode !== 'entertainment') : [],
+          modes: pending ? pending.modes.filter(isWellness) : [],
           pomodoroBreakMin: settings.debugFastIntervals ? 1 : settings.pomodoroBreakMin,
         }
       : { kind: 'pomodoroEnd' };
@@ -318,7 +334,7 @@ function activeVisitFor(visit: Visit, channel: VisitChannel, tabId: number | nul
     kind: visit.kind,
     channel,
     tabId,
-    modes: visit.kind === 'reminder' ? visit.modes : [],
+    modes: visit.kind === 'reminder' ? visit.modes : visit.kind === 'lesson' ? ['language'] : [],
     characterId: visit.characterId,
     shownAt: Date.now(),
   };
@@ -377,7 +393,7 @@ export async function showDebug(scenario: DebugScenario): Promise<MessageRespons
   let extras: Partial<Visit> | undefined;
   switch (scenario.type) {
     case 'mode':
-      body = { kind: 'reminder', modes: [scenario.mode], pomodoroBreakMin: null };
+      body = await bodyFor([scenario.mode]);
       break;
     case 'merged':
       body = { kind: 'reminder', modes: ['hydration', 'stretch'], pomodoroBreakMin: null };

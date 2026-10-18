@@ -1,6 +1,6 @@
 import { DEFAULT_CHARACTERS } from '@/assets/characters';
 import { bondFor, moodFor } from '@/lib/bond';
-import { isDefaultCharacterId } from '@/lib/characters';
+import { toCharacterId } from '@/lib/characters';
 import { byId } from '@/lib/dom';
 import { formatMinutes, isInQuietHours } from '@/lib/focus';
 import { sendToBackground } from '@/lib/messaging';
@@ -86,10 +86,9 @@ async function render(): Promise<void> {
   if (settings.debugFastIntervals) debugPanel.hidden = false;
   statusText.textContent = describeNext(settings, schedule);
 
-  const name = isDefaultCharacterId(characters.activeId)
-    ? DEFAULT_CHARACTERS[characters.activeId].name
-    : (characters.custom.find((c) => c.id === characters.activeId)?.name ?? 'Your buddy');
-  moodText.textContent = `${name} ${MOOD_TEXT[moodFor(bondFor(bond, characters.activeId).affection)]}`;
+  const characterId = toCharacterId(characters.activeId);
+  const name = DEFAULT_CHARACTERS[characterId].name.toLowerCase();
+  moodText.textContent = `Your ${name} ${MOOD_TEXT[moodFor(bondFor(bond, characterId).affection)]}`;
   renderPomodoro(settings);
 }
 

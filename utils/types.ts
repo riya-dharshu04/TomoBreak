@@ -16,7 +16,8 @@ export type ModeId =
   | 'posture'
   | 'stretch'
   | 'pomodoro'
-  | 'entertainment';
+  | 'entertainment'
+  | 'language';
 
 /** How the user responded to a visit. `ignored` = auto-dismissed after 60 s. */
 export type Answer = 'yes' | 'no' | 'snooze' | 'ignored';
@@ -59,37 +60,12 @@ export type Pose =
   | 'side'
   | 'ankle';
 
-export type DefaultCharacterId = 'hana' | 'kenta' | 'kitsu';
-
-/** States a user can upload an image for. Others reuse these with CSS effects. */
-export type UploadState = 'idle' | 'walk' | 'happy' | 'sad';
-
-/** Data URLs (`data:image/...`) per uploaded state; at least one is present. */
-export type CharacterImages = Partial<Record<UploadState, string>>;
-
-/** Metadata of an uploaded character. Its images live under `charimg:<id>`. */
-export interface CustomCharacter {
-  id: string;
-  name: string;
-  createdAt: number;
-}
+export type DefaultCharacterId = 'hamster' | 'cat' | 'dog' | 'girl' | 'boy';
 
 export interface CharacterStore {
-  /** Id of the character that visits: a DefaultCharacterId or a custom id. */
-  activeId: string;
-  custom: CustomCharacter[];
+  /** The character that visits. */
+  activeId: DefaultCharacterId;
 }
-
-/**
- * Storage key holding one custom character's images. Kept out of
- * `characters` so reading the active character never loads every upload.
- */
-export type CharacterImagesKey = `charimg:${string}`;
-
-/** Everything the overlay needs to draw a character. */
-export type CharacterRender =
-  | { kind: 'default'; id: DefaultCharacterId }
-  | { kind: 'custom'; id: string; images: CharacterImages };
 
 // ---------------------------------------------------------------------------
 // Bond (affection, streak unlocks, weekly summary)
@@ -148,6 +124,45 @@ export interface ReactionState {
 }
 
 // ---------------------------------------------------------------------------
+// Language lessons
+// ---------------------------------------------------------------------------
+
+export type LessonLanguage = 'english' | 'japanese';
+
+export interface EnglishWord {
+  language: 'english';
+  word: string;
+  /** "adj.", "noun", "verb"... */
+  partOfSpeech: string;
+  meaning: string;
+  example: string;
+}
+
+/** Japanese words are taught in order, from basic to advanced. */
+export type JapaneseLevel = 'basic' | 'intermediate' | 'advanced';
+
+export interface JapaneseWord {
+  language: 'japanese';
+  level: JapaneseLevel;
+  /** As usually written (kanji and/or kana). */
+  word: string;
+  /** Reading in hiragana. */
+  reading: string;
+  romaji: string;
+  meaning: string;
+  example: string;
+  /** English translation of the example. */
+  exampleMeaning: string;
+}
+
+export type LessonWord = EnglishWord | JapaneseWord;
+
+export interface LessonState {
+  /** How many words of each language have been taught (position in its list). */
+  cursor: Record<LessonLanguage, number>;
+}
+
+// ---------------------------------------------------------------------------
 // Pomodoro
 // ---------------------------------------------------------------------------
 
@@ -199,6 +214,8 @@ export interface Settings {
   lateNightStartMin: number;
   /** Sites for the optional social-media nudge. */
   socialSites: string[];
+  /** The language the Language mode teaches. */
+  language: LessonLanguage;
   /** Hidden debug option: every interval becomes 1 minute. */
   debugFastIntervals: boolean;
 }
@@ -231,7 +248,7 @@ export interface ActiveVisit {
   tabId: number | null;
   /** Modes the answer applies to (empty for reactions). */
   modes: ModeId[];
-  characterId: string;
+  characterId: DefaultCharacterId;
   shownAt: number;
 }
 
@@ -261,7 +278,6 @@ export interface StatsStore {
 
 /**
  * Shape of chrome.storage.local. Each top-level key is stored separately.
- * Custom character images use additional `CharacterImagesKey` keys.
  */
 export interface StorageSchema {
   version: number;
@@ -272,6 +288,7 @@ export interface StorageSchema {
   bond: BondStore;
   pomodoro: PomodoroState;
   reactions: ReactionState;
+  lessons: LessonState;
 }
 
 export type StorageKey = keyof StorageSchema;
@@ -305,7 +322,7 @@ export type VisitEntrance = 'walk' | 'peek';
 
 interface VisitBase {
   id: string;
-  characterId: string;
+  characterId: DefaultCharacterId;
   entrance: VisitEntrance;
   /** Options-page preview: plays locally, never reported. */
   preview: boolean;
@@ -323,7 +340,9 @@ export type VisitBody =
   | { kind: 'reminder'; modes: ModeId[]; pomodoroBreakMin: number | null }
   /** Pomodoro break is over: start another focus round? */
   | { kind: 'pomodoroEnd' }
-  | { kind: 'reaction'; reaction: ReactionKind };
+  | { kind: 'reaction'; reaction: ReactionKind }
+  /** Language mode: teach one word. */
+  | { kind: 'lesson'; word: LessonWord };
 
 export type VisitKind = VisitBody['kind'];
 export type Visit = VisitBase & VisitBody;

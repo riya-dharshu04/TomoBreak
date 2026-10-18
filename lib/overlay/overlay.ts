@@ -14,7 +14,7 @@
  * the host then fills that element instead of the viewport.
  */
 import characterCss from '@/assets/characters/characters.css?inline';
-import type { Answer, AnswerOutcome, CharacterRender, CharacterState, Pose, UnlockId, Visit } from '@/utils/types';
+import type { Answer, AnswerOutcome, CharacterState, Pose, UnlockId, Visit } from '@/utils/types';
 import { CharacterView } from './character-view';
 import { ESCAPE, TIMEOUT, runVisit, type Choice, type Stage } from './flows';
 import overlayCss from './overlay.css?inline';
@@ -24,6 +24,10 @@ const HOST_TAG = 'tomobreak-buddy';
 const AUTO_DISMISS_MS = 60_000;
 const WALK_PX_PER_S = 240;
 const FADE_MS = 400;
+/** Space kept between the bubble and the top of the page (or preview box). */
+const BUBBLE_TOP_MARGIN = 8;
+/** The bubble sits this far above the character, tail included. */
+const BUBBLE_GAP = 20;
 /** Share of the character that is visible during a gentle "peek" entrance. */
 const PEEK_VISIBLE = 0.6;
 const CONFETTI_PIECES = 28;
@@ -75,7 +79,7 @@ export class Overlay implements Stage {
   private previousFocus: Element | null = null;
   private destroyed = false;
 
-  constructor(visit: Visit, character: CharacterRender, callbacks: OverlayCallbacks, options: OverlayOptions = {}) {
+  constructor(visit: Visit, callbacks: OverlayCallbacks, options: OverlayOptions = {}) {
     this.visit = visit;
     this.callbacks = callbacks;
     this.container = options.container ?? null;
@@ -110,9 +114,13 @@ export class Overlay implements Stage {
     this.text.setAttribute('aria-live', 'polite');
     this.extra = el('div', 'extra');
     this.actions = el('div', 'actions');
-    this.bubble.append(this.text, this.extra, this.actions);
+    // Text and card scroll inside the body if the bubble runs out of room;
+    // the buttons below always stay visible.
+    const body = el('div', 'bubble-body');
+    body.append(this.text, this.extra);
+    this.bubble.append(body, this.actions);
 
-    this.character = new CharacterView(character, 'character');
+    this.character = new CharacterView(visit.characterId, 'character');
     this.character.setMood(visit.mood);
     this.character.setLook(this.look);
 
@@ -125,6 +133,8 @@ export class Overlay implements Stage {
   async play(): Promise<void> {
     (this.container ?? document.documentElement).append(this.host);
     window.addEventListener('keydown', this.onKeyDown, true);
+    window.addEventListener('resize', this.fitBubble);
+    this.fitBubble();
     await this.enter();
     if (this.destroyed) return;
     await runVisit(this);
@@ -140,6 +150,7 @@ export class Overlay implements Stage {
     if (this.destroyed) return;
     this.destroyed = true;
     window.removeEventListener('keydown', this.onKeyDown, true);
+    window.removeEventListener('resize', this.fitBubble);
     for (const id of this.timers) window.clearTimeout(id);
     this.timers.clear();
     for (const animation of this.animations) animation.cancel();
@@ -190,12 +201,14 @@ export class Overlay implements Stage {
 
   say(line: string): void {
     this.text.textContent = line;
+    this.text.classList.remove('is-big');
     this.extra.replaceChildren();
     this.bubble.classList.add('is-visible');
   }
 
-  showCard(title: string, rows: readonly string[], footer: string): void {
+  showCard(title: string, rows: readonly string[], footer: string, bigTitle = false): void {
     this.say(title);
+    this.text.classList.toggle('is-big', bigTitle);
     const list = el('ul', 'card-rows');
     for (const row of rows) list.append(el('li', '', row));
     this.extra.replaceChildren(list, el('p', 'card-footer', footer));
@@ -297,6 +310,16 @@ export class Overlay implements Stage {
     }
     this.actions.querySelector('button')?.focus({ preventScroll: true });
   }
+
+  /**
+   * Cap the bubble's height to the room above the character, so a tall card
+   * (a word lesson, the weekly summary) is never cut off by the top of a
+   * short window or the preview box.
+   */
+  private readonly fitBubble = (): void => {
+    const room = this.buddy.offsetTop - BUBBLE_GAP - BUBBLE_TOP_MARGIN;
+    this.bubble.style.setProperty('--tb-bubble-max', `${Math.max(140, room)}px`);
+  };
 
   /** Escape answers Snooze / skips a timer. Only the Escape key is looked at. */
   private readonly onKeyDown = (event: KeyboardEvent): void => {

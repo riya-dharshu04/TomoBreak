@@ -4,7 +4,7 @@
  */
 import { DEFAULT_CHARACTERS } from '@/assets/characters';
 import { MILESTONES, bestStreak, bondFor, moodFor, streakFor } from '@/lib/bond';
-import { isDefaultCharacterId, resolveCharacter } from '@/lib/characters';
+import { toCharacterId } from '@/lib/characters';
 import { byId, el } from '@/lib/dom';
 import { MODE_IDS, MODES } from '@/lib/modes';
 import { CharacterView } from '@/lib/overlay/character-view';
@@ -27,6 +27,7 @@ const UNITS: Record<ModeId, string> = {
   stretch: 'stretches',
   pomodoro: 'sessions',
   entertainment: 'laughs',
+  language: 'words',
 };
 
 const avatar = byId('bond-avatar', HTMLDivElement);
@@ -60,17 +61,16 @@ export async function renderStats(): Promise<void> {
     getItem('bond'),
     getItem('stats'),
   ]);
-  const bond = bondFor(bondStore, characters.activeId);
+  const bond = bondFor(bondStore, toCharacterId(characters.activeId));
   const mood = moodFor(bond.affection);
-  const name = isDefaultCharacterId(characters.activeId)
-    ? DEFAULT_CHARACTERS[characters.activeId].name
-    : (characters.custom.find((c) => c.id === characters.activeId)?.name ?? 'Your buddy');
+  const characterId = toCharacterId(characters.activeId);
+  const name = DEFAULT_CHARACTERS[characterId].name;
 
-  const view = new CharacterView(await resolveCharacter(characters.activeId));
+  const view = new CharacterView(characterId);
   view.setMood(mood);
   view.setLook(bond.unlocks);
   avatar.replaceChildren(view.element);
-  moodText.textContent = `${name} is ${MOOD_LABEL[mood]}`;
+  moodText.textContent = `Your ${name.toLowerCase()} is ${MOOD_LABEL[mood]}`;
   bondValue.textContent = `${bond.affection} / 100`;
   bondMeter.setAttribute('aria-valuenow', String(bond.affection));
   bondFill.style.width = `${bond.affection}%`;

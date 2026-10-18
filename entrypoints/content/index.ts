@@ -5,12 +5,12 @@
  * site adapter that watches for results.
  *
  * It deliberately does not subscribe to chrome.storage changes: every tab
- * would then receive each change, including multi-MB character uploads.
- * The service worker sends `visit/hide` instead when TomoBreak is turned off.
+ * would then be woken by each settings, stats or schedule write. The service
+ * worker sends `visit/hide` instead when TomoBreak is turned off.
  */
 import { defineContentScript } from 'wxt/utils/define-content-script';
 import { adapterFor } from '@/lib/adapters';
-import { resolveCharacter } from '@/lib/characters';
+import { toCharacterId } from '@/lib/characters';
 import { onMessages, sendToBackground } from '@/lib/messaging';
 import { ActivityTracker } from '@/lib/overlay/activity';
 import { Overlay } from '@/lib/overlay/overlay';
@@ -56,8 +56,8 @@ export default defineContentScript({
         if (document.fullscreenElement) return { ok: false, reason: 'fullscreen' };
         if (activity.isTyping()) return { ok: false, reason: 'typing' };
         hide();
-        const character = await resolveCharacter(visit.characterId);
-        const current = new Overlay(visit, character, {
+        // Unknown ids (e.g. from an older version) fall back to a built-in character.
+        const current = new Overlay({ ...visit, characterId: toCharacterId(visit.characterId) }, {
           onAnswer: (answer) => sendToBackground({ type: 'visit/answer', visitId: visit.id, answer }),
           onClosed: () => {
             if (overlay === current) overlay = null;

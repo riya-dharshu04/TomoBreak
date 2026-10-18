@@ -4,6 +4,7 @@
  */
 import {
   BONUS_YES,
+  LESSON,
   MERGED,
   MOOD_GREETING,
   POMODORO,
@@ -26,6 +27,7 @@ import type {
   Answer,
   AnswerOutcome,
   CharacterState,
+  LessonWord,
   ModeId,
   Pose,
   UnlockId,
@@ -39,6 +41,8 @@ export const ESCAPE = '__escape';
 export const TIMEOUT = '__timeout';
 
 const EYE_SECONDS = 20;
+/** A word card takes longer to read than a question. */
+const LESSON_TIMEOUT_MS = 90_000;
 
 export interface Choice {
   id: string;
@@ -55,7 +59,8 @@ export interface Stage {
   wear(unlock: UnlockId): void;
   confetti(): void;
   say(line: string): void;
-  showCard(title: string, rows: readonly string[], footer: string): void;
+  /** `bigTitle` makes the title stand out (e.g. the word in a lesson). */
+  showCard(title: string, rows: readonly string[], footer: string, bigTitle?: boolean): void;
   /** Resolves with the chosen id, ESCAPE, or TIMEOUT after `timeoutMs` (default 60 s). */
   ask(choices: readonly Choice[], timeoutMs?: number): Promise<string>;
   countdown(seconds: number, skipLabel: string): Promise<boolean>;
@@ -65,6 +70,7 @@ export interface Stage {
 
 type ReminderVisit = Visit & Extract<VisitBody, { kind: 'reminder' }>;
 type ReactionVisit = Visit & Extract<VisitBody, { kind: 'reaction' }>;
+type LessonVisit = Visit & Extract<VisitBody, { kind: 'lesson' }>;
 
 export async function runVisit(stage: Stage): Promise<void> {
   const visit = stage.visit;
@@ -82,6 +88,9 @@ export async function runVisit(stage: Stage): Promise<void> {
       return;
     case 'reaction':
       await reaction(stage, visit);
+      return;
+    case 'lesson':
+      await lesson(stage, visit, greeting);
       return;
   }
 }
@@ -257,6 +266,66 @@ async function reminderYes(stage: Stage, visit: ReminderVisit, dialogue: ModeDia
   stage.setState('happy');
   stage.say(pick(dialogue.done ?? yesLines));
   await stage.wait(3000);
+}
+
+// ---- Language lesson ---------------------------------------------------------------
+
+/** Title and lines of the word card. */
+function wordCard(word: LessonWord): { title: string; rows: string[] } {
+  if (word.language === 'english') {
+    return {
+      title: `${word.word} (${word.partOfSpeech})`,
+      rows: [word.meaning, `“${word.example}”`],
+    };
+  }
+  return {
+    title: `${word.word}（${word.reading}）`,
+    rows: [
+      `${word.romaji} · ${word.meaning}`,
+      word.example,
+      `→ ${word.exampleMeaning}`,
+      `Level: ${LESSON.levels[word.level]}`,
+    ],
+  };
+}
+
+async function lesson(stage: Stage, visit: LessonVisit, greeting: string): Promise<void> {
+  const { word } = visit;
+  const dialogue = dialogueFor('language');
+  stage.setState('talk');
+  stage.say(withGreeting(greeting, pick(LESSON.intro[word.language])));
+  await stage.wait(1600);
+
+  const card = wordCard(word);
+  stage.showCard(card.title, card.rows, pick(LESSON.tip[word.language]), true);
+  const answer = toAnswer(await stage.ask(threeButtons(dialogue.buttons), LESSON_TIMEOUT_MS));
+  const outcome = stage.report(answer);
+
+  switch (answer) {
+    case 'yes':
+      stage.setState('happy');
+      stage.say(
+        word.language === 'english' ? fill(pick(LESSON.yesEnglish), { word: word.word }) : pick(LESSON.yesJapanese),
+      );
+      if (visit.unlocks.includes('celebration')) stage.confetti();
+      await stage.wait(3500);
+      break;
+    case 'no':
+      await sadThenEncourage(stage, dialogue);
+      break;
+    case 'snooze':
+      stage.setState('idle');
+      stage.say(pick(dialogue.snooze));
+      await stage.wait(2200);
+      break;
+    case 'ignored':
+      stage.setState('sleepy');
+      stage.say(pick(dialogue.ignored));
+      await stage.wait(2200);
+      break;
+  }
+
+  for (const unlock of (await outcome).unlocks) await celebrateUnlock(stage, unlock);
 }
 
 // ---- Pomodoro break over ---------------------------------------------------------

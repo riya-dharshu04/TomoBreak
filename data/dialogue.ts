@@ -3,7 +3,7 @@
  * the character is a little sad, never guilt-tripping.
  * `{name}` placeholders are filled with fill().
  */
-import type { ModeId, Mood, ReactionKind, UnlockId } from '@/utils/types';
+import type { LessonLanguage, ModeId, Mood, ReactionKind, UnlockId } from '@/utils/types';
 
 /** A list with at least one entry, so picking from it never yields undefined. */
 export type Lines = readonly [string, ...string[]];
@@ -87,6 +87,15 @@ const DIALOGUE: Record<ModeId, ModeDialogue> = {
     snooze: ["Okay, I'll save my best jokes for later!"],
     ignored: ["I'll tell you another one later!"],
   },
+  language: {
+    prompt: ['Word time! 📚'],
+    buttons: { yes: 'Got it! ✨', no: 'Not now', snooze: 'Snooze 10 min' },
+    yes: ['Nice! Your vocabulary just grew!', 'Great! Try using it today!'],
+    no: ['Okay...'],
+    noFollowUp: "We'll learn it another time!",
+    snooze: ["Okay! I'll bring a word back in 10 minutes."],
+    ignored: ["I'll teach you a word later!"],
+  },
 };
 
 export function dialogueFor(mode: ModeId): ModeDialogue {
@@ -103,6 +112,7 @@ const MERGE_PHRASES: Record<ModeId, string> = {
   stretch: 'a quick stretch',
   pomodoro: 'a break',
   entertainment: 'a joke',
+  language: 'a new word',
 };
 
 export const MERGED: Omit<ModeDialogue, 'prompt'> = {
@@ -174,6 +184,24 @@ export const SUMMARY_ROWS: Record<ModeId, (count: number) => string> = {
   stretch: (n) => `🙆 You stretched ${n} ${n === 1 ? 'time' : 'times'}`,
   pomodoro: (n) => `🍅 You finished ${n} focus ${n === 1 ? 'session' : 'sessions'}`,
   entertainment: (n) => `🎉 You laughed at ${n} ${n === 1 ? 'joke' : 'jokes'}`,
+  language: (n) => `📚 You learned ${n} new ${n === 1 ? 'word' : 'words'}`,
+};
+
+// ---- Language lessons ----------------------------------------------------------
+
+export const LESSON = {
+  intro: {
+    english: ['Word of the moment! 📚', 'Here’s a word to level up your English:', 'New word time! 📚'],
+    japanese: ['日本語の時間！ Japanese time! 📚', 'Here’s a Japanese word for you:', 'New word time! 📚'],
+  } satisfies Record<LessonLanguage, Lines>,
+  /** Bottom line of the word card. */
+  tip: {
+    english: ['Try using it in a sentence today!', 'Say it out loud once!'],
+    japanese: ['Say it out loud once!', 'Try writing it down!'],
+  } satisfies Record<LessonLanguage, Lines>,
+  yesEnglish: ['Nice! Try using “{word}” today!', 'Great! “{word}” is yours now!'] as Lines,
+  yesJapanese: ['すごい！ (sugoi!) Amazing!', 'よくできました！ (yoku dekimashita!) Well done!', 'がんばったね！ (ganbatta ne!) Great effort!'] as Lines,
+  levels: { basic: 'Basic', intermediate: 'Intermediate', advanced: 'Advanced' },
 };
 
 // ---- Context reactions -------------------------------------------------------

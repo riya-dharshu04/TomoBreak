@@ -217,6 +217,7 @@ export async function handleAnswer(visitId: string, answer: Answer): Promise<Ans
   let unlocks: AnswerOutcome['unlocks'] = [];
   switch (visit.kind) {
     case 'reminder':
+    case 'lesson':
       if (visit.modes.length === 0) break; // a Pomodoro break with nothing bundled
       for (const mode of visit.modes) await recordAnswer(mode, answer);
       await rescheduleModes(visit.modes, answer === 'snooze' ? SNOOZE_MIN : undefined);

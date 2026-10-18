@@ -2,15 +2,16 @@
  * Options page: the 3-step onboarding (character, modes, intervals) with a
  * live preview, focus settings, context reactions, and the bond & stats tab.
  * Opened automatically on install with `?welcome=1`. Nothing is stored until
- * Save, except uploads, which are saved when added so the preview can use them.
+ * Save.
  */
 import '@/assets/characters/characters.css';
 import { byId, el } from '@/lib/dom';
 import { formatMinutes, normalizeSite } from '@/lib/focus';
 import { MODE_IDS, MODES } from '@/lib/modes';
 import { getItem, onItemChanged, updateItem } from '@/lib/storage';
-import type { ModeId, ModeSettings, ReactionId } from '@/utils/types';
-import { CharacterPicker, UploadForm } from './characters';
+import type { LessonLanguage, ModeId, ModeSettings, ReactionId } from '@/utils/types';
+import { toCharacterId } from '@/lib/characters';
+import { CharacterPicker } from './characters';
 import { Preview } from './preview';
 import { initStats, renderStats } from './stats';
 import { initTabs } from './tabs';
@@ -26,6 +27,12 @@ const REACTION_INFO: Record<ReactionId, { label: string; description: string }> 
   codingWins: { label: '🏆 Coding wins', description: 'Celebrate LeetCode “Accepted” and PRs you merge on GitHub; cheer you on after a wrong answer.' },
   socialNudge: { label: '👀 Social nudge', description: 'A playful nudge after 30 minutes on YouTube, Instagram, X or Reddit. Off by default.' },
 };
+const LANGUAGE_LABELS: Record<LessonLanguage, string> = {
+  english: 'English',
+  japanese: '日本語 Japanese',
+};
+const LANGUAGES: readonly LessonLanguage[] = ['english', 'japanese'];
+
 const REACTION_IDS: readonly ReactionId[] = ['lateNight', 'longSession', 'tabOverload', 'codingWins', 'socialNudge'];
 
 const welcome = byId('welcome', HTMLParagraphElement);
@@ -91,6 +98,7 @@ async function main(): Promise<void> {
   const goals: Record<ModeId, number> = structuredClone(settings.goals);
   const reactions: Record<ReactionId, boolean> = structuredClone(settings.reactions);
   let pomodoroBreakMin = settings.pomodoroBreakMin;
+  let language: LessonLanguage = settings.language;
 
   // ---- Preview ----
   const preview = new Preview(stage);
@@ -98,7 +106,7 @@ async function main(): Promise<void> {
   let replayTimer: number | undefined;
   const replay = (): void => {
     window.clearTimeout(replayTimer);
-    void preview.play(picker.selected, sampleMode());
+    void preview.play(picker.selected, sampleMode(), language);
   };
   /** Debounced, so clicking through characters doesn't restart the walk each time. */
   const replaySoon = (): void => {
@@ -108,31 +116,55 @@ async function main(): Promise<void> {
   replayButton.addEventListener('click', replay);
 
   // ---- Step 1 ----
-  const picker = new CharacterPicker(characters.activeId, { onSelect: replaySoon });
-  await picker.render();
-  new UploadForm(async (id) => {
-    await picker.render();
-    picker.select(id);
-  });
+  const picker = new CharacterPicker(toCharacterId(characters.activeId), { onSelect: replaySoon });
+  picker.render();
 
   // ---- Step 2 ----
+  /** English or Japanese, shown inside the Language card while it is on. */
+  const languagePicker = (): HTMLElement => {
+    const group = el('div', 'language-picker');
+    group.setAttribute('role', 'radiogroup');
+    group.setAttribute('aria-label', 'Language to learn');
+    for (const lang of LANGUAGES) {
+      const option = el('label', 'language-option');
+      const radio = el('input');
+      radio.type = 'radio';
+      radio.name = 'lesson-language';
+      radio.value = lang;
+      radio.checked = language === lang;
+      radio.addEventListener('change', () => {
+        if (!radio.checked) return;
+        language = lang;
+        replaySoon();
+      });
+      option.append(radio, el('span', '', LANGUAGE_LABELS[lang]));
+      group.append(option);
+    }
+    group.append(el('p', 'language-hint', 'English: intermediate to advanced words. Japanese: basic to advanced, step by step.'));
+    return group;
+  };
+
   const renderModes = (): void => {
     modeList.replaceChildren(
       ...MODE_IDS.map((id) => {
         const def = MODES[id];
-        const label = el('label', 'mode-card');
+        const card = el('div', 'mode-card');
+        const label = el('label', 'mode-toggle');
         const input = el('input');
         input.type = 'checkbox';
         input.checked = modes[id].enabled;
         input.addEventListener('change', () => {
           modes[id].enabled = input.checked;
+          renderModes();
           renderIntervals();
           replaySoon();
         });
         const text = el('span', 'mode-text');
         text.append(el('span', 'mode-title', `${def.emoji} ${def.label}`), el('span', 'mode-desc', def.description));
         label.append(input, text);
-        return label;
+        card.append(label);
+        if (id === 'language' && modes.language.enabled) card.append(languagePicker());
+        return card;
       }),
     );
   };
@@ -182,7 +214,8 @@ async function main(): Promise<void> {
   // ---- Reactions ----
   reactionList.replaceChildren(
     ...REACTION_IDS.map((id) => {
-      const label = el('label', 'mode-card');
+      const card = el('div', 'mode-card');
+      const label = el('label', 'mode-toggle');
       const input = el('input');
       input.type = 'checkbox';
       input.checked = reactions[id];
@@ -192,7 +225,8 @@ async function main(): Promise<void> {
       const text = el('span', 'mode-text');
       text.append(el('span', 'mode-title', REACTION_INFO[id].label), el('span', 'mode-desc', REACTION_INFO[id].description));
       label.append(input, text);
-      return label;
+      card.append(label);
+      return card;
     }),
   );
   lateNightStart.value = formatMinutes(settings.lateNightStartMin);
@@ -234,6 +268,7 @@ async function main(): Promise<void> {
         meetingSites: meeting,
         blockedSites: blocked,
         reactions: structuredClone(reactions),
+        language,
         lateNightStartMin: parseTime(lateNightStart.value) ?? s.lateNightStartMin,
         socialSites: social,
       }));

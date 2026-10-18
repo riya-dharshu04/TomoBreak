@@ -19,7 +19,7 @@ Everything below lives only in your browser's extension storage (`chrome.storage
 | Data | Why |
 | --- | --- |
 | Settings (modes, intervals, goals, quiet hours, site lists, reactions) | So TomoBreak works the way you chose. |
-| Characters, including images you upload | So your chosen buddy can visit. Uploads never leave your device. |
+| Which character you chose | So your chosen buddy can visit. |
 | Daily answer counts per mode (e.g. "4 × Yes to hydration on Oct 18") | Streaks, the weekly summary and the stats page. |
 | Bond data (affection, unlocked rewards) | The character's mood and rewards. |
 | Reminder timing (next due times, Pomodoro phase, last reaction time) | Scheduling. |
@@ -42,7 +42,7 @@ Everything below lives only in your browser's extension storage (`chrome.storage
 
 ## Permissions
 
-- `storage`, `unlimitedStorage`: keep the data above (and uploaded images) on your device.
+- `storage`: keep the data above on your device.
 - `alarms`: schedule reminders and Pomodoro phases.
 - `idle`: wait until you are back before showing a reminder.
 - `notifications`: show reminders on pages where the character cannot appear.
@@ -52,7 +52,6 @@ Everything below lives only in your browser's extension storage (`chrome.storage
 ## Your control
 
 - Turn TomoBreak off at any time from the popup; every reaction can be switched off in settings.
-- Delete uploaded characters on the settings page.
 - Removing the extension deletes all of its data from your browser.
 
 ## Contact

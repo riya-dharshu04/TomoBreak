@@ -67,10 +67,20 @@
   background: var(--tb-bubble-bg);
   color: var(--tb-bubble-fg);
   box-shadow: var(--tb-shadow);
+  display: flex;
+  flex-direction: column;
+  max-height: var(--tb-bubble-max, none);
   opacity: 0;
   transform: translateX(-50%) translateY(6px) scale(0.92);
   transition: opacity 0.2s ease, transform 0.2s ease;
   pointer-events: none;
+}
+
+.bubble-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .bubble.is-visible {
@@ -128,6 +138,12 @@
 
 .extra:empty {
   display: none;
+}
+
+.text.is-big {
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
 .card-rows {

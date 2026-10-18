@@ -13,13 +13,17 @@ Everything stays on your device: no network requests, no analytics, no remote co
 
 ## Features
 
-- **3 original characters** (Hana, Kenta, Kitsu) drawn as inline SVG with idle, walk, talk, happy,
-  sad, sleepy and surprised states, plus **your own uploads** (PNG/GIF/WebP, up to 2 MB, 1–4 states;
-  missing states are animated with CSS effects).
+- **5 original characters** drawn as inline SVG, each in its own colour: a chubby orange Hamster
+  with buck teeth and a sunflower seed, a black Cat with green eyes, a brown Dog with floppy ears,
+  a Girl in a pink dress and a Boy in a green hoodie. All have idle, walk, talk, happy, sad, sleepy
+  and surprised states.
 - **Onboarding on one screen**: character → modes → intervals, with a live preview.
 - **Wellness modes**: Hydration, Eye break (20-20-20 with a 20 s countdown), Posture, Stretch (8 desk
   stretches with a 30 s timer and matching poses), Pomodoro (from the popup; reminders are held back
-  and bundled into the break), Entertainment (comedy dance + one of 66 wholesome jokes).
+  and bundled into the break), Entertainment (comedy dance + one of 66 wholesome jokes), and
+  Language (default every 30 min): one word per visit in the language you pick. English teaches 90
+  intermediate-to-advanced words in a shuffled order; Japanese teaches 127 words from basic to
+  advanced, in order, with reading, romaji, meaning and an example sentence.
 - **Focus-aware timing**: due reminders wait for a natural pause (20 s without typing, a tab switch,
   a navigation, coming back to your desk). Never while typing, in fullscreen, on a call or in quiet
   hours. Within 10 minutes of the due time it shows anyway, gently peeking in from the edge. Several
@@ -68,12 +72,12 @@ Open the popup and click the version number (bottom right) **5 times**. The debu
 | Feature | How to test |
 | --- | --- |
 | Onboarding | Fresh install opens the setup page. Pick characters/modes and watch the preview. Save. |
-| Custom character | Setup → *Upload your own*. Try a >2 MB file (rejected), then one PNG. Select it and press *Play again*. |
 | Hydration | Debug → Hydration. **Yes** = 5 s dance; **No** = sad face then "Go grab some, I'll wait!". |
 | Eye break | Debug → Eye break → *Start*: eyes close, 20 s countdown, then a thank-you. |
 | Posture | Debug → Posture: the character slouches, then straightens up. |
 | Stretch | Debug → Stretch → *Let's do it*: instruction + 30 s timer + matching pose. |
 | Entertainment | Debug → Entertainment: dance, then a joke. |
+| Language | Setup → turn on 📚 Language, pick English or 日本語 Japanese, Save. Debug → *Language word* shows the next word card; *Got it!* counts toward the daily goal. |
 | Merging | Turn on several modes with Fast intervals; they arrive together as one visit. |
 | Pomodoro | Enable Pomodoro in Setup, set focus to 1 min (or use Fast intervals), start it in the popup. Other reminders wait; the break visit delivers them. |
 | Typing | With Fast intervals, keep typing in a text box: nothing appears. Stop for ~20 s: it walks in. |
@@ -112,7 +116,7 @@ lib/
   overlay/               Shadow-DOM overlay (stage), visit scripts (flows), activity tracker
   adapters/              LeetCode and GitHub result watchers
 utils/types.ts           every stored object and message type
-assets/characters/       default SVG characters and animation CSS
+assets/characters/       built-in characters (one SVG file each), shared parts, animation CSS
 data/                    dialogue, 66 jokes, 8 stretches
 ```
 
@@ -127,6 +131,12 @@ Key rules the code follows:
 - **Strict TypeScript, no `any`.** All messages are discriminated unions in `utils/types.ts`, sent
   through `lib/messaging.ts`, and handler maps must cover every message type.
 
+### Changing the built-in characters
+
+Each character is one file in `assets/characters/` (e.g. `hamster.ts`) holding its SVG, built from the
+shared face, hat and frame in `parts.ts`, and listed in `assets/characters/index.ts`. Colours are
+constants at the top of each file. Keep the `tb-*` part classes so the animations keep working.
+
 ### Adding a site adapter
 
 Create `lib/adapters/<site>.ts` exporting a `SiteAdapter` (`id`, `hosts`, `start(emit)`), use
@@ -136,7 +146,7 @@ Create `lib/adapters/<site>.ts` exporting a `SiteAdapter` (`id`, `hosts`, `start
 ### Data model and migrations
 
 `chrome.storage.local` holds `version`, `settings`, `characters`, `schedule`, `stats`, `bond`,
-`pomodoro`, `reactions`, plus one `charimg:<id>` key per uploaded character. To change a stored shape,
+`pomodoro` and `reactions`. To change a stored shape,
 bump `STORAGE_VERSION` in `lib/storage.ts` and add a step to `MIGRATIONS`; missing keys and new
 settings are filled from defaults on install, update and browser start.
 
@@ -159,7 +169,7 @@ settings are filled from defaults on install, update and browser start.
   - Single purpose: "A wellness companion that shows friendly break reminders on the page you're
     viewing."
   - Permission justifications:
-    - `storage`, `unlimitedStorage`: settings, stats and uploaded character images, on device only.
+    - `storage`: settings, stats and bond data, on device only.
     - `alarms`: reminder and Pomodoro timing (MV3 service workers can't keep timers).
     - `idle`: wait until you're back at your desk before showing a reminder.
     - `notifications`: fallback on pages where the character can't appear.
@@ -169,5 +179,6 @@ settings are filled from defaults on install, update and browser start.
   - Data usage: declare that **no user data is collected or transmitted**.
   - Link the privacy policy (host `PRIVACY.md`, e.g. on GitHub Pages or the repository).
 - [ ] Mention the keyboard shortcut (Alt+Shift+H) and the opt-in social nudge in the description.
-- [ ] Confirm no copyrighted characters ship (Hana, Kenta and Kitsu are original artwork).
+- [ ] Confirm no copyrighted characters ship (the hamster, cat, dog, girl and boy are original
+      artwork).
 - [ ] Submit for review; reply to reviewer questions with the justifications above.

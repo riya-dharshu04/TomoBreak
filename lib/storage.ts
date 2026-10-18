@@ -2,9 +2,9 @@ import { MODE_IDS, MODES } from '@/lib/modes';
 import type { ModeId, ModeSettings, ReactionId, Settings, StorageKey, StorageSchema } from '@/utils/types';
 
 /** Bump this and add a step to MIGRATIONS whenever the stored shape changes. */
-export const STORAGE_VERSION = 3;
+export const STORAGE_VERSION = 8;
 
-const STORAGE_KEYS: StorageKey[] = ['version', 'settings', 'characters', 'schedule', 'stats', 'bond', 'pomodoro', 'reactions'];
+const STORAGE_KEYS: StorageKey[] = ['version', 'settings', 'characters', 'schedule', 'stats', 'bond', 'pomodoro', 'reactions', 'lessons'];
 
 export const DEFAULT_MEETING_SITES: readonly string[] = ['meet.google.com', 'zoom.us', 'teams.microsoft.com'];
 export const DEFAULT_SOCIAL_SITES: readonly string[] = ['youtube.com', 'instagram.com', 'x.com', 'twitter.com', 'reddit.com'];
@@ -37,6 +37,7 @@ export function defaultSettings(): Settings {
     reactions: { ...DEFAULT_REACTIONS },
     lateNightStartMin: 60,
     socialSites: [...DEFAULT_SOCIAL_SITES],
+    language: 'english',
     debugFastIntervals: false,
   };
 }
@@ -45,7 +46,7 @@ function defaults(): StorageSchema {
   return {
     version: STORAGE_VERSION,
     settings: defaultSettings(),
-    characters: { activeId: 'hana', custom: [] },
+    characters: { activeId: 'hamster' },
     schedule: { modes: {}, activeVisit: null, lastVisitEndAt: 0 },
     stats: { days: {} },
     bond: { characters: {}, lastSummaryWeek: '' },
@@ -58,7 +59,55 @@ function defaults(): StorageSchema {
       socialSince: null,
       lastTabOverloadAt: 0,
     },
+    lessons: { cursor: { english: 0, japanese: 0 } },
   };
+}
+
+/** Retired default characters and the current one that replaces each. */
+const RETIRED_CHARACTERS: Record<string, string> = {
+  hana: 'girl',
+  kenta: 'boy',
+  kitsu: 'dog',
+  // Character sets that only existed in local development builds.
+  mimi: 'girl',
+  aria: 'girl',
+  sillyMimi: 'girl',
+  sillyAria: 'girl',
+  lily: 'girl',
+  tomo: 'boy',
+  kai: 'boy',
+  sillyTomo: 'boy',
+  sillyKai: 'boy',
+  leo: 'boy',
+  biscuit: 'dog',
+  sillyBiscuit: 'dog',
+  snoot: 'dog',
+  mochi: 'cat',
+  sillyMochi: 'cat',
+  domino: 'cat',
+  puffy: 'hamster',
+  peanut: 'hamster',
+};
+
+/** Move users (and their affection and unlocks) off retired characters. */
+function renameRetiredCharacters(data: Snapshot): Snapshot {
+  const next: Snapshot = { ...data };
+  const rename = (id: string): string => RETIRED_CHARACTERS[id] ?? id;
+  if (isRecord(data.characters) && typeof data.characters.activeId === 'string') {
+    next.characters = { ...data.characters, activeId: rename(data.characters.activeId) };
+  }
+  if (isRecord(data.bond) && isRecord(data.bond.characters)) {
+    const characters: Snapshot = {};
+    for (const [id, bond] of Object.entries(data.bond.characters)) characters[rename(id)] = bond;
+    next.bond = { ...data.bond, characters };
+  }
+  return next;
+}
+
+/** Characters the user uploaded before uploads were removed (v8). */
+function uploadedCharacterIds(data: Snapshot): string[] {
+  if (!isRecord(data.characters) || !Array.isArray(data.characters.custom)) return [];
+  return data.characters.custom.flatMap((c: unknown) => (isRecord(c) && typeof c.id === 'string' ? [c.id] : []));
 }
 
 /** Raw stored data of any past version; only migrations look inside it. */
@@ -93,6 +142,27 @@ const MIGRATIONS: Record<number, (data: Snapshot) => Snapshot> = {
   // v2 → v3: ActiveVisit gained kind/characterId; an in-flight visit is dropped.
   // New keys (bond, pomodoro, reactions) and settings are filled from defaults.
   2: (data) => (isRecord(data.schedule) ? { ...data, schedule: { ...data.schedule, activeVisit: null } } : data),
+  // v3 → v7: the default characters were replaced (more than once).
+  3: renameRetiredCharacters,
+  4: renameRetiredCharacters,
+  5: renameRetiredCharacters,
+  6: renameRetiredCharacters,
+  // v7 → v8: uploaded characters were removed. Users of one switch to the
+  // default character; their bond data is dropped (images: see ensureInitialized).
+  7: (data) => {
+    const uploads = uploadedCharacterIds(data);
+    const next: Snapshot = { ...data };
+    if (isRecord(data.characters)) {
+      const active = data.characters.activeId;
+      next.characters = { activeId: typeof active === 'string' && !uploads.includes(active) ? active : 'hamster' };
+    }
+    if (isRecord(data.bond) && isRecord(data.bond.characters)) {
+      const characters: Snapshot = {};
+      for (const [id, bond] of Object.entries(data.bond.characters)) if (!uploads.includes(id)) characters[id] = bond;
+      next.bond = { ...data.bond, characters };
+    }
+    return next;
+  },
 };
 
 export function migrate(data: Snapshot): Snapshot {
@@ -111,8 +181,9 @@ export function migrate(data: Snapshot): Snapshot {
  * with defaults. Missing nested settings (e.g. a newly added mode) are merged.
  */
 export async function ensureInitialized(): Promise<void> {
-  // Only our own keys: custom character images can be large and are not needed.
+  // Only our own keys (old uploaded images live under separate keys).
   const stored = await chrome.storage.local.get(STORAGE_KEYS);
+  const oldUploads = uploadedCharacterIds(stored);
   // After migration the data has the current shape; this is the trust boundary.
   const migrated = migrate(stored) as Partial<StorageSchema>;
   const base = defaults();
@@ -135,9 +206,12 @@ export async function ensureInitialized(): Promise<void> {
     bond: { ...base.bond, ...migrated.bond },
     pomodoro: { ...base.pomodoro, ...migrated.pomodoro },
     reactions: { ...base.reactions, ...migrated.reactions },
+    lessons: { cursor: { ...base.lessons.cursor, ...migrated.lessons?.cursor } },
     version: STORAGE_VERSION,
   };
   await chrome.storage.local.set(next);
+  // Images of characters uploaded before v8, stored as `charimg:<id>`.
+  if (oldUploads.length > 0) await chrome.storage.local.remove(oldUploads.map((id) => `charimg:${id}`));
 }
 
 export async function getItem<K extends StorageKey>(key: K): Promise<StorageSchema[K]> {

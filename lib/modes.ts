@@ -15,6 +15,7 @@ export interface ModeDefinition {
 export const MODE_IDS: readonly ModeId[] = [
   'hydration',
   'eye',
+  'language',
   'posture',
   'stretch',
   'pomodoro',
@@ -30,10 +31,17 @@ export const MODES: Record<ModeId, ModeDefinition> = {
   pomodoro: { id: 'pomodoro', label: 'Pomodoro', emoji: '🍅', description: 'Focus sprints you start from the popup.', defaultIntervalMin: 25, defaultEnabled: false, defaultGoal: 2 },
   // Entertainment is randomised between 60 and 120 min; this is the midpoint.
   entertainment: { id: 'entertainment', label: 'Entertainment', emoji: '🎉', description: 'A silly dance and a joke now and then.', defaultIntervalMin: 90, defaultEnabled: false, defaultGoal: 1 },
+  language: { id: 'language', label: 'Language', emoji: '📚', description: 'Learn one English or Japanese word at a time.', defaultIntervalMin: 30, defaultEnabled: false, defaultGoal: 3 },
 };
 
 /** Modes run by interval alarms. Pomodoro is started from the popup instead. */
-export const SCHEDULED_MODES: readonly ModeId[] = ['hydration', 'eye', 'posture', 'stretch', 'entertainment'];
+export const SCHEDULED_MODES: readonly ModeId[] = ['hydration', 'eye', 'posture', 'stretch', 'entertainment', 'language'];
+
+/**
+ * Modes that always visit on their own instead of being merged into one
+ * wellness visit: a joke or a word lesson needs the whole bubble.
+ */
+export const SOLO_MODES: readonly ModeId[] = ['entertainment', 'language'];
 
 /** Entertainment shows up at a random time in this range. */
 const ENTERTAINMENT_RANGE_MIN = [60, 120] as const;
