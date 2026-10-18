@@ -1,0 +1,125 @@
+/*
+ * Shared state animations for every default character.
+ * The wrapper `.tb-char` carries `data-state` (idle | walk | talk | happy |
+ * sad | sleepy | surprised); the SVG parts use the tb-* classes from hana.ts.
+ */
+
+.tb-char {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: filter 0.4s ease;
+}
+
+.tb-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Animated parts rotate/scale around their own bounding box. Not applied to
+   every element, because it would shift the static rotate() attributes. */
+.tb-figure, .tb-head, .tb-arm-l, .tb-arm-r, .tb-leg-l, .tb-leg-r,
+.tb-hair-swing, .tb-mouth-open, .tb-tear, .tb-zzz, .tb-sparkles {
+  transform-box: fill-box;
+}
+.tb-figure { transform-origin: 50% 100%; }
+.tb-head { transform-origin: 50% 90%; transition: transform 0.4s ease; }
+.tb-arm-l, .tb-arm-r, .tb-leg-l, .tb-leg-r { transform-origin: 50% 0%; transition: transform 0.3s ease; }
+.tb-hair-swing { transform-origin: 10% 10%; }
+.tb-mouth-open { transform-origin: 50% 0%; }
+
+/* ---- Face parts per state ---------------------------------------------- */
+
+.tb-eyes-open, .tb-eyes-happy, .tb-eyes-closed, .tb-eyes-sad, .tb-eyes-wide,
+.tb-mouth-smile, .tb-mouth-open, .tb-mouth-sad, .tb-mouth-o,
+.tb-tear, .tb-zzz, .tb-sparkles {
+  display: none;
+}
+
+.tb-char:is([data-state='idle'], [data-state='walk']) :is(.tb-eyes-open, .tb-mouth-smile),
+.tb-char[data-state='talk'] :is(.tb-eyes-open, .tb-mouth-open),
+.tb-char[data-state='happy'] :is(.tb-eyes-happy, .tb-mouth-open, .tb-sparkles),
+.tb-char[data-state='sad'] :is(.tb-eyes-sad, .tb-mouth-sad, .tb-tear),
+.tb-char[data-state='sleepy'] :is(.tb-eyes-closed, .tb-mouth-o, .tb-zzz),
+.tb-char[data-state='surprised'] :is(.tb-eyes-wide, .tb-mouth-o) {
+  display: inline;
+}
+
+/* ---- idle / talk: breathing, hair sway ---------------------------------- */
+
+.tb-char:is([data-state='idle'], [data-state='talk']) .tb-figure {
+  animation: tb-breathe 2.4s ease-in-out infinite;
+}
+.tb-char:is([data-state='idle'], [data-state='talk']) .tb-hair-swing {
+  animation: tb-sway 3s ease-in-out infinite alternate;
+}
+.tb-char[data-state='talk'] .tb-mouth-open {
+  animation: tb-talk 0.28s ease-in-out infinite alternate;
+}
+.tb-char[data-state='talk'] .tb-head {
+  animation: tb-nod 1.6s ease-in-out infinite alternate;
+}
+
+/* ---- walk: bobbing body, alternating legs and arms ---------------------- */
+
+.tb-char[data-state='walk'] .tb-figure { animation: tb-bob 0.45s ease-in-out infinite alternate; }
+.tb-char[data-state='walk'] .tb-leg-l { animation: tb-step 0.45s ease-in-out infinite alternate; }
+.tb-char[data-state='walk'] .tb-leg-r { animation: tb-step 0.45s ease-in-out infinite alternate-reverse; }
+.tb-char[data-state='walk'] .tb-arm-l { animation: tb-swing 0.45s ease-in-out infinite alternate-reverse; }
+.tb-char[data-state='walk'] .tb-arm-r { animation: tb-swing 0.45s ease-in-out infinite alternate; }
+.tb-char[data-state='walk'] .tb-hair-swing { animation: tb-sway 0.45s ease-in-out infinite alternate; }
+
+/* ---- happy: jump + spin dance, waving arms ------------------------------ */
+
+.tb-char[data-state='happy'] { animation: tb-dance 1.2s ease-in-out infinite; }
+.tb-char[data-state='happy'] .tb-arm-l { animation: tb-wave-l 0.3s ease-in-out infinite alternate; }
+.tb-char[data-state='happy'] .tb-arm-r { animation: tb-wave-r 0.3s ease-in-out infinite alternate; }
+.tb-char[data-state='happy'] .tb-sparkles { animation: tb-twinkle 0.6s ease-in-out infinite alternate; }
+
+/* ---- sad: droop and desaturate ------------------------------------------ */
+
+.tb-char[data-state='sad'] { filter: saturate(0.6); }
+.tb-char[data-state='sad'] .tb-head { transform: translateY(3px) rotate(-6deg); }
+.tb-char[data-state='sad'] .tb-figure { transform: translateY(2px) scaleY(0.98); }
+.tb-char[data-state='sad'] .tb-arm-l { transform: rotate(-8deg); }
+.tb-char[data-state='sad'] .tb-arm-r { transform: rotate(8deg); }
+.tb-char[data-state='sad'] .tb-tear { animation: tb-tear 1.6s ease-in infinite; }
+
+/* ---- sleepy: tilted head, slow breath, floating z's --------------------- */
+
+.tb-char[data-state='sleepy'] .tb-head { transform: translateY(2px) rotate(8deg); }
+.tb-char[data-state='sleepy'] .tb-figure { animation: tb-breathe 3.5s ease-in-out infinite; }
+.tb-char[data-state='sleepy'] .tb-zzz { animation: tb-float 2.4s ease-in-out infinite; }
+
+/* ---- surprised: a little hop -------------------------------------------- */
+
+.tb-char[data-state='surprised'] .tb-figure { animation: tb-hop 0.4s ease-out 1; }
+
+/* ---- keyframes ---------------------------------------------------------- */
+
+@keyframes tb-breathe { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(1.02); } }
+@keyframes tb-sway { from { transform: rotate(-4deg); } to { transform: rotate(5deg); } }
+@keyframes tb-talk { from { transform: scaleY(0.3); } to { transform: scaleY(1); } }
+@keyframes tb-nod { from { transform: rotate(-2deg); } to { transform: rotate(2deg); } }
+@keyframes tb-bob { from { transform: translateY(0); } to { transform: translateY(-4px); } }
+@keyframes tb-step { from { transform: rotate(16deg); } to { transform: rotate(-16deg); } }
+@keyframes tb-swing { from { transform: rotate(18deg); } to { transform: rotate(-18deg); } }
+@keyframes tb-wave-l { from { transform: rotate(130deg); } to { transform: rotate(165deg); } }
+@keyframes tb-wave-r { from { transform: rotate(-130deg); } to { transform: rotate(-165deg); } }
+@keyframes tb-twinkle { from { opacity: 0.4; transform: scale(0.8); } to { opacity: 1; transform: scale(1.15); } }
+@keyframes tb-tear { from { transform: translateY(0); opacity: 1; } to { transform: translateY(9px); opacity: 0; } }
+@keyframes tb-float { from { transform: translateY(0); opacity: 1; } to { transform: translateY(-8px); opacity: 0.2; } }
+@keyframes tb-hop { 0% { transform: translateY(0); } 40% { transform: translateY(-10px); } 100% { transform: translateY(0); } }
+@keyframes tb-dance {
+  0%   { transform: translateY(0) rotateY(0deg); }
+  20%  { transform: translateY(-18px) rotateY(0deg); }
+  40%  { transform: translateY(0) rotateY(0deg); }
+  70%  { transform: translateY(-14px) rotateY(180deg); }
+  100% { transform: translateY(0) rotateY(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tb-char, .tb-char * { animation: none !important; transition: none !important; }
+}
